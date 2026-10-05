@@ -4,7 +4,11 @@ import argparse
 import json
 import re
 import sys
+import tempfile
+import time
 import urllib.request
+from contextlib import contextmanager
+from http.client import HTTPException, IncompleteRead
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
@@ -44,9 +48,62 @@ def tag(element):
     return element.tag.rsplit('}', 1)[-1]
 
 
-def read_offers(source, offer_id=None, limit=1, timeout=30):
-    """Stream XML; release processed elements and stop at the requested offer."""
-    stream = open_url(source, timeout) if urlparse(source).scheme in ('http', 'https') else open(source, 'rb')
+def validate_feed_xml(path):
+    """Check the entire XML without retaining its tree in memory."""
+    with path.open('rb') as stream:
+        stack = []
+        for event, element in ET.iterparse(stream, events=('start', 'end')):
+            if event == 'start':
+                stack.append(element)
+            else:
+                if len(stack) > 1:
+                    stack[-2].remove(element)
+                element.clear()
+                stack.pop()
+
+
+@contextmanager
+def prepared_feed(source, timeout=30, attempts=5):
+    """Download and validate a complete snapshot before any offer is rendered."""
+    if urlparse(source).scheme not in ('http', 'https'):
+        path = Path(source)
+        validate_feed_xml(path)
+        yield path
+        return
+    with tempfile.TemporaryDirectory(prefix='product-card-feed-') as directory:
+        path = Path(directory)/'feed.xml'
+        for attempt in range(1, attempts + 1):
+            print(f'Feed download: attempt {attempt}/{attempts}', flush=True)
+            try:
+                # Opening with wb discards the partial download from a previous attempt.
+                with open_url(source, timeout) as response, path.open('wb') as target:
+                    expected = response.headers.get('Content-Length')
+                    total = 0
+                    while chunk := response.read(65536):
+                        target.write(chunk)
+                        total += len(chunk)
+                    if expected is not None and total != int(expected):
+                        raise IncompleteRead(b'', max(0, int(expected) - total))
+                validate_feed_xml(path)
+            except (OSError, HTTPException, ET.ParseError, ValueError) as error:
+                print(f'Feed download failed ({attempt}/{attempts}): {error}', file=sys.stderr, flush=True)
+                if attempt == attempts:
+                    raise
+                time.sleep(min(2 ** attempt, 30))
+            else:
+                print(f'Feed ready: {total} bytes; XML validated', flush=True)
+                break
+        yield path
+
+
+def read_offers(source, offer_id=None, limit=1, timeout=30, attempts=5):
+    """Read offers from a complete local snapshot, preserving the source URL."""
+    with prepared_feed(source, timeout, attempts) as path:
+        yield from read_local_offers(path, source, offer_id, limit)
+
+
+def read_local_offers(path, source, offer_id=None, limit=1):
+    stream = path.open('rb')
     count = 0
     with stream:
         stack = []
@@ -145,16 +202,17 @@ def main():
     parser.add_argument('--background', type=Path, default=ROOT/'assets/light-paint-background-v8.png')
     parser.add_argument('--dark-background', type=Path, default=ROOT/'assets/dark-paint-background-v7.png')
     parser.add_argument('--timeout', type=float, default=30)
+    parser.add_argument('--feed-attempts', type=int, default=5, help='Feed download attempts (default: 5)')
     parser.add_argument('--threshold', type=int, default=235)
     parser.add_argument('--raw-photo', action='store_true', help='Disable tyre tone and sharpness preset')
     args = parser.parse_args()
-    if args.limit < 0 or args.timeout <= 0 or not 0 <= args.threshold <= 255:
-        parser.error('limit must be >= 0, timeout > 0, threshold between 0 and 255')
+    if args.limit < 0 or args.timeout <= 0 or args.feed_attempts < 1 or not 0 <= args.threshold <= 255:
+        parser.error('limit must be >= 0, timeout > 0, feed-attempts >= 1, threshold between 0 and 255')
     for theme in ('dark', 'light'):
         (args.output/theme).mkdir(parents=True, exist_ok=True)
     processed = generated = skipped = failed = 0
     try:
-        for product in read_offers(args.feed, args.id, args.limit, args.timeout):
+        for product in read_offers(args.feed, args.id, args.limit, args.timeout, args.feed_attempts):
             processed += 1
             product_id = product.get('id') or '<missing-id>'
             try:

@@ -4,11 +4,19 @@ import io
 import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
+from http.client import IncompleteRead
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from xml.etree import ElementTree as ET
 
-from feed_card import IncompleteOffer, generate, main, validate_product
+from feed_card import IncompleteOffer, generate, main, validate_product, read_offers, prepared_feed
+
+
+class FeedResponse(io.BytesIO):
+    def __init__(self, data, length=None):
+        super().__init__(data)
+        self.headers = {} if length is None else {'Content-Length': str(length)}
 
 
 class FeedTest(unittest.TestCase):
@@ -93,6 +101,47 @@ class FeedTest(unittest.TestCase):
         result, _, errors = self.run_feed('<offers><offer>', lambda product, args: None)
         self.assertEqual(result, 1)
         self.assertIn('Feed error:', errors)
+
+    def test_download_retries_incomplete_read_and_preserves_relative_urls(self):
+        broken = FeedResponse(b'')
+        broken.read = lambda size: (_ for _ in ()).throw(IncompleteRead(b'partial', 10))
+        xml = b'<offers><offer id="GOOD"><picture>photos/tyre.jpg</picture></offer></offers>'
+        with patch('feed_card.open_url', side_effect=[broken, FeedResponse(xml, len(xml))]) as download, \
+                patch('feed_card.time.sleep') as sleep, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            products = list(read_offers('https://example.com/catalog/feed.xml', limit=0))
+        self.assertEqual(download.call_count, 2)
+        sleep.assert_called_once_with(2)
+        self.assertEqual(products[0]['pictures'], ['https://example.com/catalog/photos/tyre.jpg'])
+
+    def test_length_mismatch_and_truncated_xml_are_retried(self):
+        xml = b'<offers><offer id="GOOD"/></offers>'
+        responses = [FeedResponse(xml, len(xml)+10),
+                     FeedResponse(b'<offers><offer id="BAD"/>'), FeedResponse(xml)]
+        with patch('feed_card.open_url', side_effect=responses) as download, \
+                patch('feed_card.time.sleep'), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            products = list(read_offers('https://example.com/feed.xml', limit=0))
+        self.assertEqual(download.call_count, 3)
+        self.assertEqual([p['id'] for p in products], ['GOOD'])
+
+    def test_incomplete_feed_never_yields_offers_before_validation(self):
+        with patch('feed_card.open_url', side_effect=lambda *args: FeedResponse(b'<offers><offer id="BAD"/>')) as download, \
+                patch('feed_card.time.sleep'), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            iterator = read_offers('https://example.com/feed.xml', attempts=2)
+            with self.assertRaises(ET.ParseError):
+                next(iterator)
+        self.assertEqual(download.call_count, 2)
+
+    def test_snapshot_is_removed_after_reading(self):
+        with patch('feed_card.open_url', return_value=FeedResponse(b'<offers/>')), redirect_stdout(io.StringIO()):
+            with prepared_feed('https://example.com/feed.xml') as path:
+                self.assertTrue(path.is_file())
+            self.assertFalse(path.exists())
+
+    def test_invalid_local_xml_does_not_generate_even_with_limit_one(self):
+        with patch('feed_card.generate') as render:
+            result, _, _ = self.run_feed('<offers><offer id="GOOD"/><offer>', render)
+        render.assert_not_called()
+        self.assertEqual(result, 1)
 
 
 if __name__ == '__main__':
