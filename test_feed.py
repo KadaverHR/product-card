@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
-from feed_card import IncompleteOffer, generate, main, validate_product, read_offers, prepared_feed
+from feed_card import IncompleteOffer, generate, main, validate_product, read_offers, prepared_feed, offer_data
 
 
 class FeedResponse(io.BytesIO):
@@ -44,6 +44,45 @@ class FeedTest(unittest.TestCase):
             with self.assertRaises(IncompleteOffer):
                 validate_product(product)
         validate_product(self.product)  # Season is optional; double index is valid.
+
+    def test_s083924_size_without_profile_and_model_extraction(self):
+        element = ET.fromstring('''<offer id="S083924" available="true">
+          <vendor>Cordiant</vendor><name>Cordiant Business CA-1 195R14 106/104R</name>
+          <picture>https://example.com/photo.jpg</picture>
+          <param name="Размер">195R14 106/104R</param>
+          <param name="Ширина">195</param><param name="Диаметр">14</param>
+          <param name="Индекс нагрузки">106/104</param>
+          <param name="Индекс скорости">R</param></offer>''')
+        product = offer_data(element, 'https://example.com/feed.xml')
+        self.assertEqual(product['card'], dict(brand='Cordiant', model='Business CA-1',
+                         size='195', diameter='R14', load='106/104', speed='R', season_label='ШИНЫ'))
+        validate_product(product)
+
+    def test_sizes_with_and_without_profile_parse_from_name(self):
+        for supplied, size, diameter, load, speed in [
+                ('195R14 106/104R', '195', 'R14', '106/104', 'R'),
+                ('195 R14 106R', '195', 'R14', '106', 'R'),
+                ('195R14C 106/104R', '195', 'R14', '106/104', 'R'),
+                ('225/65 R17 106H', '225/65', 'R17', '106', 'H'),
+                ('225/65R17 106/104H', '225/65', 'R17', '106/104', 'H')]:
+            with self.subTest(size=supplied):
+                product = offer_data(ET.fromstring(f'''<offer id="GOOD"><vendor>Cordiant</vendor>
+                    <name>Cordiant Business CA-1 {supplied}</name>
+                    <picture>https://example.com/photo.jpg</picture></offer>'''), 'https://example.com/feed.xml')
+                self.assertEqual(product['card']['size'], size)
+                self.assertEqual(product['card']['diameter'], diameter)
+                self.assertEqual(product['card']['load'], load)
+                self.assertEqual(product['card']['speed'], speed)
+                self.assertEqual(product['card']['model'], 'Business CA-1')
+                validate_product(product)
+
+    def test_width_alone_does_not_become_size_without_profile(self):
+        product = offer_data(ET.fromstring('''<offer id="GOOD"><vendor>Cordiant</vendor>
+            <model>Business CA-1</model><param name="Ширина">195</param>
+            <param name="Диаметр">14</param></offer>'''), 'https://example.com/feed.xml')
+        self.assertEqual(product['card']['size'], '')
+        with self.assertRaises(IncompleteOffer):
+            validate_product(product)
 
     def run_feed(self, xml, renderer):
         with tempfile.TemporaryDirectory() as directory:

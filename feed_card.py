@@ -18,6 +18,7 @@ from build import ROOT, cutout
 from PIL import Image
 
 DEFAULT_FEED = 'https://3sta.ru/yandex/feed.xml'
+TYRE_SIZE_PATTERN = r'\b(\d{3})(?:\s*/\s*(\d{2,3}))?\s*R\s*(\d{2})(?!\d)(?:C)?(?:\s+(\d{2,3}(?:/\d{2,3})?)\s*([A-Z]))?'
 
 
 class IncompleteOffer(ValueError):
@@ -142,18 +143,23 @@ def offer_data(element, source):
         return by_name.get(name.casefold(), '')
     name, brand = value('name'), value('vendor')
     size = param('Размер')
-    match = re.search(r'(\d{3})\s*/\s*(\d{2,3})\s*R\s*(\d{2})(?:\s+(\d{2,3})([A-Z]))?', size or name, re.I)
+    match = re.search(TYRE_SIZE_PATTERN, size or name, re.I)
     width = param('Ширина') or (match[1] if match else '')
     profile = param('Профиль') or (match[2] if match else '')
     diameter = param('Диаметр') or (match[3] if match else '')
     model = value('model') or name
     if brand and model.casefold().startswith(brand.casefold()):
         model = model[len(brand):].strip()
-    model = re.split(r'\b\d{3}\s*/\s*\d{2,3}', model, maxsplit=1)[0].strip()
+    model_size = re.search(TYRE_SIZE_PATTERN, model, re.I)
+    if model_size:
+        model = model[:model_size.start()].strip()
     season = param('Сезон').casefold()
     label = {'летняя': 'ЛЕТНИЕ ШИНЫ', 'зимняя': 'ЗИМНИЕ ШИНЫ',
              'всесезонная': 'ВСЕСЕЗОННЫЕ ШИНЫ'}.get(season, 'ШИНЫ')
-    card = {'brand': brand, 'model': model, 'size': f'{width}/{profile}' if width and profile else '',
+    # A missing profile is valid only when a recognised size supplies the context.
+    # Do not invent a profile or treat an isolated width as a complete tyre size.
+    card_size = f'{width}/{profile}' if width and profile else (width if width and match else '')
+    card = {'brand': brand, 'model': model, 'size': card_size,
             'diameter': 'R' + diameter.lstrip('Rr') if diameter else '',
             'load': param('Индекс нагрузки') or (match[4] or '' if match else ''),
             'speed': param('Индекс скорости') or (match[5] or '' if match else ''),
