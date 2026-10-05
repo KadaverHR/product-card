@@ -16,6 +16,23 @@ from PIL import Image
 DEFAULT_FEED = 'https://3sta.ru/yandex/feed.xml'
 
 
+class IncompleteOffer(ValueError):
+    """An offer cannot be rendered because required input data is absent."""
+
+
+def validate_product(product):
+    card = product.get('card') or {}
+    missing = [key for key in ('brand', 'model', 'size', 'diameter', 'load', 'speed')
+               if card.get(key) is None or not str(card.get(key, '')).strip()]
+    if not str(product.get('id') or '').strip():
+        missing.append('id')
+    pictures = product.get('pictures') or []
+    if not pictures or not str(pictures[0] or '').strip():
+        missing.append('picture')
+    if missing:
+        raise IncompleteOffer('Missing required data: ' + ', '.join(missing))
+
+
 def open_url(url, timeout):
     if urlparse(url).scheme not in ('http', 'https'):
         raise ValueError('URL must use http or https')
@@ -90,11 +107,7 @@ def offer_data(element, source):
 
 
 def generate(product, args):
-    missing = [key for key in ('brand', 'model', 'size', 'diameter', 'load', 'speed') if not product['card'][key]]
-    if missing:
-        raise ValueError('Missing tyre characteristics: ' + ', '.join(missing))
-    if not product['pictures']:
-        raise ValueError('Offer has no picture')
+    validate_product(product)
     product_id = product['id']
     if not re.fullmatch(r'[\w-]+', product_id) or product_id.upper() in {'CON', 'PRN', 'AUX', 'NUL'} or re.fullmatch(r'(COM|LPT)[1-9]', product_id, re.I):
         raise ValueError('Offer ID is unsuitable for an output directory')
@@ -139,17 +152,25 @@ def main():
         parser.error('limit must be >= 0, timeout > 0, threshold between 0 and 255')
     for theme in ('dark', 'light'):
         (args.output/theme).mkdir(parents=True, exist_ok=True)
-    failed = 0
+    processed = generated = skipped = failed = 0
     try:
         for product in read_offers(args.feed, args.id, args.limit, args.timeout):
+            processed += 1
+            product_id = product.get('id') or '<missing-id>'
             try:
                 generate(product, args)
+                generated += 1
+            except IncompleteOffer as error:
+                skipped += 1
+                print(f'SKIP {product_id}: {error}', flush=True)
             except Exception as error:
                 failed += 1
-                print(f"{product['id']}: {error}", file=sys.stderr)
+                print(f'ERROR {product_id}: {error}', file=sys.stderr, flush=True)
     except Exception as error:
-        print(f'Feed error: {error}', file=sys.stderr)
+        print(f'Feed error: {error}', file=sys.stderr, flush=True)
+        print(f'Summary: processed={processed}, generated={generated}, skipped={skipped}, failed={failed}', flush=True)
         return 1
+    print(f'Summary: processed={processed}, generated={generated}, skipped={skipped}, failed={failed}', flush=True)
     return 1 if failed else 0
 
 
