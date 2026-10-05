@@ -2,6 +2,7 @@
 import hmac
 import io
 import ipaddress
+import json
 import logging
 import os
 import re
@@ -206,6 +207,38 @@ def create_app(output=None, public_base_url=None, api_key=None):
     def card_response(sku, theme, path):
         return CardResponse(sku=sku, theme=theme, image_url=f'{base_url}/images/{theme}/{quote(sku)}.png?v={path.stat().st_mtime_ns}')
 
+    def parameters_path(sku, theme):
+        sku_path(sku, theme)
+        return output.with_name(output.name+'-sources')/sku/f'generation-{theme}.json'
+
+    @app.get('/cards/viewer', include_in_schema=False)
+    def viewer():
+        return FileResponse(ROOT/'viewer.html', media_type='text/html', headers={'Cache-Control': 'no-store'})
+
+    @app.get('/api/v1/cards/{sku}/parameters', dependencies=[Depends(authorize)], summary='Сохранённые параметры генерации')
+    def get_parameters(sku: str, theme: Annotated[Theme, Query()]):
+        saved = parameters_path(sku, theme)
+        source = saved.parent/'product.json'
+        try:
+            if saved.is_file():
+                return json.loads(saved.read_text(encoding='utf-8'))
+            if not source.is_file():
+                fail(404, 'parameters_not_found', 'Параметры не сохранены; заполните форму вручную')
+            product = json.loads(source.read_text(encoding='utf-8'))
+            card = product.get('card', {})
+            pictures = product.get('pictures', [])
+            return {
+                'sku': sku, 'theme': theme,
+                'brand': card.get('brand', ''), 'model': card.get('model', ''),
+                'size': ' '.join(str(card.get(key) or '') for key in ('size', 'diameter')).strip(),
+                'load_index': str(card.get('load') or ''), 'speed_index': str(card.get('speed') or ''),
+                'image_url': pictures[0] if pictures else '',
+                'season': {'ЛЕТНИЕ ШИНЫ': 'summer', 'ЗИМНИЕ ШИНЫ': 'winter',
+                           'ВСЕСЕЗОННЫЕ ШИНЫ': 'all-season'}.get(card.get('season_label')),
+            }
+        except (OSError, ValueError, TypeError, AttributeError):
+            fail(500, 'parameters_read_failed', 'Не удалось прочитать сохранённые параметры')
+
     @app.get('/api/v1/cards', response_model=CardList, dependencies=[Depends(authorize)], summary='Страница готовых карточек выбранной темы')
     def list_cards(
         theme: Annotated[Theme, Query(description='Обязательная тема: dark или light')],
@@ -245,6 +278,15 @@ def create_app(output=None, public_base_url=None, api_key=None):
             fail(429, 'generator_busy', 'Генератор занят; повторите запрос позже')
         try:
             render_card(data, destination)
+            saved = parameters_path(data.sku, data.theme)
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=saved.parent, suffix='.tmp', delete=False) as temporary:
+                staging = Path(temporary.name)
+            try:
+                staging.write_text(data.model_dump_json(indent=2), encoding='utf-8')
+                os.replace(staging, saved)
+            finally:
+                staging.unlink(missing_ok=True)
         except HTTPException:
             raise
         except Exception:

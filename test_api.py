@@ -1,5 +1,7 @@
 """API contract tests without external downloads or real card generation."""
 import io
+import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +18,7 @@ class CardAPITest(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.output = Path(self.directory.name)
+        self.addCleanup(lambda: shutil.rmtree(self.output.with_name(self.output.name+'-sources'), ignore_errors=True))
         self.client = TestClient(create_app(self.output, 'https://cards.example.com', 'secret'))
         self.headers = {'X-API-Key': 'secret'}
         self.payload = dict(theme='dark', sku='S207352', brand='Cordiant', model='GRAVITY SUV',
@@ -53,6 +56,32 @@ class CardAPITest(unittest.TestCase):
         self.assertEqual(response.json()['sku'], 'S207352')
         self.assertTrue((self.output/'dark/S207352.png').is_file())
         self.assertFalse((self.output/'light/S207352.png').exists())
+        saved = self.client.get('/api/v1/cards/S207352/parameters?theme=dark', headers=self.headers)
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json(), self.payload)
+
+    def test_viewer_reads_feed_parameters_and_enforces_api_authorization(self):
+        folder = self.output.with_name(self.output.name+'-sources')/'S207352'
+        folder.mkdir(parents=True)
+        product = {'card': {'brand': 'Cordiant', 'model': 'GRAVITY SUV', 'size': '225/65',
+                           'diameter': 'R17', 'load': '106', 'speed': 'H', 'season_label': 'ЛЕТНИЕ ШИНЫ'},
+                   'pictures': ['https://example.com/photo.jpg']}
+        (folder/'product.json').write_text(json.dumps(product), encoding='utf-8')
+        path = '/api/v1/cards/S207352/parameters?theme=dark'
+        self.assertEqual(self.client.get(path).status_code, 401)
+        self.assertEqual(self.client.get(path, headers=self.headers).json(), self.payload)
+        self.assertEqual(self.client.get('/cards/viewer').status_code, 200)
+        self.assertEqual(self.client.get('/api/v1/cards/MISSING/parameters?theme=light', headers=self.headers).status_code, 404)
+
+    def test_regeneration_parameters_are_separate_for_each_theme(self):
+        folder = self.output.with_name(self.output.name+'-sources')
+        with patch('api.render_card', side_effect=lambda data, path: path.write_bytes(b'card')):
+            for theme in ('dark', 'light'):
+                payload = dict(self.payload, theme=theme, model=theme+' model')
+                self.assertEqual(self.client.post('/api/v1/cards/generate', json=payload, headers=self.headers).status_code, 200)
+        for theme in ('dark', 'light'):
+            result = self.client.get('/api/v1/cards/S207352/parameters?theme='+theme, headers=self.headers).json()
+            self.assertEqual(result['model'], theme+' model')
 
     def test_pagination_sorts_and_counts_valid_cards_only(self):
         for sku in ('C', 'A', 'B', 'CON'):

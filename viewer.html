@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DEV 3sta · Карточки товаров</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#f8f6ff;color:#21173b}
+    header{background:#5423b7;color:white;padding:18px 24px;font-weight:700}main{max-width:1200px;margin:auto;padding:24px}
+    h1{color:#5423b7;margin-top:0}.search,.panel{background:white;border:1px solid #ddd3fb;padding:20px;border-radius:12px}
+    .search{display:flex;gap:16px;align-items:end;flex-wrap:wrap;margin-bottom:20px}label{display:grid;gap:5px;font-weight:600}
+    input,select{width:100%;padding:10px;border:1px solid #ddd3fb;border-radius:6px;font:inherit}
+    button{background:#7c45f5;color:white;border:0;border-radius:6px;padding:12px 18px;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:wait}
+    .layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.wide{grid-column:1/-1}
+    .preview{width:100%;max-height:680px;object-fit:contain}.message{padding:12px;background:#f5ffd1;border-radius:6px;margin-bottom:16px;white-space:pre-wrap}.error{background:#ffe3e3}
+    .note{color:#6c6283;font-size:14px}a{color:#7c45f5}[hidden]{display:none!important}@media(max-width:760px){.layout,.fields{grid-template-columns:1fr}.wide{grid-column:auto}main{padding:12px}}
+  </style>
+</head>
+<body>
+<header>DEV 3sta · Карточки товаров</header>
+<main>
+  <h1>Просмотр и перегенерация</h1>
+  <form class="search" id="search">
+    <label>API-ключ<input id="key" type="password" autocomplete="off" placeholder="Ключ доступа"></label>
+    <label>Артикул<input id="sku" required pattern="[A-Za-z0-9_-]{1,100}" placeholder="S207352"></label>
+    <label>Тема<select id="theme"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></label>
+    <button id="find">Найти</button>
+  </form>
+  <div id="message" class="message" role="status" hidden></div>
+  <div class="layout" id="editor" hidden>
+    <section class="panel"><h2>Изображение</h2><p id="missing" hidden>Карточка ещё не создана.</p><img id="preview" class="preview" alt="Карточка товара" hidden><a id="original" target="_blank" rel="noopener" hidden>Открыть изображение</a></section>
+    <section class="panel"><h2>Параметры карточки</h2><p id="identity"></p>
+      <form id="generate" class="fields">
+        <label>Бренд<input name="brand" required maxlength="100"></label>
+        <label>Модель<input name="model" required maxlength="200"></label>
+        <label>Размер<input name="size" required placeholder="225/65 R17"></label>
+        <label>Индекс нагрузки<input name="load_index" required placeholder="106"></label>
+        <label>Индекс скорости<input name="speed_index" required placeholder="H"></label>
+        <label>Сезон<select name="season"><option value="">Без указания</option><option value="summer">Летние</option><option value="winter">Зимние</option><option value="all-season">Всесезонные</option></select></label>
+        <label class="wide">Ссылка на исходное фото<input name="image_url" type="url" required placeholder="https://..."></label>
+        <p class="note wide">Сохранение заменит карточку выбранного артикула и темы. Для другой темы выполните отдельный поиск.</p>
+        <button class="wide" id="save">Перегенерировать изображение</button>
+      </form>
+    </section>
+  </div>
+</main>
+<script>
+const el=id=>document.getElementById(id), form=el('generate');
+let selected=null;
+function message(text,error=false){el('message').hidden=false;el('message').textContent=text;el('message').classList.toggle('error',error)}
+function showImage(data){el('preview').src=data.image_url;el('preview').hidden=false;el('original').href=data.image_url;el('original').hidden=false;el('missing').hidden=true}
+async function api(path,options={}){
+  const response=await fetch(path,{...options,headers:{'X-API-Key':el('key').value,...options.headers}});
+  const data=await response.json();
+  if(!response.ok){const detail=data.detail;const text=response.status===401?'Неверный или отсутствующий API-ключ.':Array.isArray(detail)?detail.map(x=>x.loc.join('.')+': '+x.msg).join('\n'):detail?.message||'Ошибка запроса';throw Object.assign(new Error(text),{status:response.status})}
+  return data;
+}
+el('search').addEventListener('submit',async event=>{
+  event.preventDefault();selected=null;el('find').disabled=true;el('editor').hidden=true;form.reset();
+  el('preview').hidden=true;el('original').hidden=true;el('preview').removeAttribute('src');el('missing').hidden=true;
+  const sku=el('sku').value.trim(),theme=el('theme').value,path='/api/v1/cards/'+encodeURIComponent(sku);
+  message('Загрузка…');
+  try{
+    try{showImage(await api(path+'?theme='+theme))}catch(error){if(error.status!==404)throw error;el('missing').hidden=false}
+    let notice='Параметры загружены. Можно изменить их и перегенерировать карточку.';
+    try{const data=await api(path+'/parameters?theme='+theme);for(const name of ['brand','model','size','load_index','speed_index','season','image_url'])form.elements[name].value=data[name]??''}
+    catch(error){if(error.status!==404)throw error;notice='Сохранённых параметров нет. Заполните их вручную.'}
+    selected={sku,theme};el('identity').textContent=sku+' · '+(theme==='dark'?'Тёмная':'Светлая');el('editor').hidden=false;message(notice);
+  }catch(error){message(error.message,true)}finally{el('find').disabled=false}
+});
+form.addEventListener('submit',async event=>{
+  event.preventDefault();if(!selected)return;
+  el('save').disabled=true;el('find').disabled=true;message('Генерация изображения…');
+  const data=Object.fromEntries(new FormData(form));data.season=data.season||null;Object.assign(data,selected);
+  try{showImage(await api('/api/v1/cards/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));message('Карточка обновлена. Параметры сохранены.')}
+  catch(error){message(error.message,true)}finally{el('save').disabled=false;el('find').disabled=false}
+});
+</script>
+</body>
+</html>
