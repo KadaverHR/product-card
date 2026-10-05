@@ -29,10 +29,10 @@ python -m uvicorn api:app --host 0.0.0.0 --port 8000
 
 Все JSON-запросы используют `Content-Type: application/json`. Тема всегда обязательна: `dark` — тёмная, `light` — светлая. Значение `all` для API не используется; нужны два запроса. Артикулы чувствительны к регистру.
 
-## 1. Все готовые товары по теме
+## 1. Готовые товары по теме с пагинацией
 
 ```http
-GET /api/v1/cards?theme=dark
+GET /api/v1/cards?theme=dark&page=1&per_page=100
 X-API-Key: replace-with-your-secret-key
 ```
 
@@ -42,14 +42,33 @@ X-API-Key: replace-with-your-secret-key
 {
   "theme": "dark",
   "total": 2,
+  "count": 2,
   "items": [
     {"sku": "S207352", "theme": "dark", "image_url": "https://tools.3sta.ru/images/dark/S207352.png?v=123"},
     {"sku": "S207353", "theme": "dark", "image_url": "https://tools.3sta.ru/images/dark/S207353.png?v=456"}
-  ]
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 100,
+    "total_pages": 1,
+    "has_next_page": false
+  }
 }
 ```
 
-Возвращает все уже созданные карточки выбранной темы, включая результаты `feed_card.py`. Не читает фид и не запускает генерацию. Если изображений нет: `total: 0`, `items: []`. Список отсортирован по артикулу, без пагинации. Остальные характеристики товара не возвращаются: здесь каталог доступных изображений.
+Возвращает страницу уже созданных карточек выбранной темы, включая результаты `feed_card.py`. Не читает фид и не запускает генерацию. Список отсортирован по артикулу. Остальные характеристики товара не возвращаются: здесь каталог доступных изображений.
+
+| Параметр | Обязательно | По умолчанию | Значение |
+| --- | --- | --- | --- |
+| `theme` | да | — | `dark` или `light` |
+| `page` | нет | `1` | Номер страницы, целое число от 1 |
+| `per_page` | нет | `100` | Количество карточек на странице, от 1 до 500 |
+
+`total` — общее количество готовых карточек выбранной темы, `count` — количество в текущем ответе. `pagination.total_pages` — число страниц, `has_next_page` — есть ли следующая страница. Для последовательной загрузки увеличивайте `page`, пока `has_next_page` равно `true`.
+
+Если изображений нет: `total: 0`, `count: 0`, `items: []`, `total_pages: 0`. Страница за пределами списка возвращает `200` с пустым `items` и `has_next_page: false`. Неверные параметры возвращают `422`.
+
+**Изменение контракта:** запрос без параметров пагинации теперь возвращает только первые 100 карточек. Для получения всего каталога нужно пройти страницы.
 
 ## 2. Карточка по артикулу
 
@@ -156,7 +175,7 @@ $headers = @{ "X-API-Key" = "replace-with-your-secret-key" }
 $baseUrl = "https://tools.3sta.ru"
 
 # Список
-Invoke-RestMethod "$baseUrl/api/v1/cards?theme=dark" -Headers $headers
+Invoke-RestMethod "$baseUrl/api/v1/cards?theme=dark&page=1&per_page=100" -Headers $headers
 
 # Один артикул
 Invoke-RestMethod "$baseUrl/api/v1/cards/S207352?theme=dark" -Headers $headers

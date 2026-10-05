@@ -67,10 +67,19 @@ class CardResponse(BaseModel):
     image_url: str
 
 
+class Pagination(BaseModel):
+    page: int
+    per_page: int
+    total_pages: int
+    has_next_page: bool
+
+
 class CardList(BaseModel):
     theme: Theme
     total: int
+    count: int
     items: list[CardResponse]
+    pagination: Pagination
 
 
 def fail(status, code, message):
@@ -197,16 +206,30 @@ def create_app(output=None, public_base_url=None, api_key=None):
     def card_response(sku, theme, path):
         return CardResponse(sku=sku, theme=theme, image_url=f'{base_url}/images/{theme}/{quote(sku)}.png?v={path.stat().st_mtime_ns}')
 
-    @app.get('/api/v1/cards', response_model=CardList, dependencies=[Depends(authorize)], summary='Все готовые карточки выбранной темы')
-    def list_cards(theme: Annotated[Theme, Query(description='Обязательная тема: dark или light')]):
-        items = []
+    @app.get('/api/v1/cards', response_model=CardList, dependencies=[Depends(authorize)], summary='Страница готовых карточек выбранной темы')
+    def list_cards(
+        theme: Annotated[Theme, Query(description='Обязательная тема: dark или light')],
+        page: Annotated[int, Query(ge=1, description='Номер страницы, начиная с 1')] = 1,
+        per_page: Annotated[int, Query(ge=1, le=500, description='Карточек на странице, максимум 500')] = 100,
+    ):
+        paths = []
         for path in sorted((output/theme).glob('*.png')):
+            if not path.is_file():
+                continue
             try:
                 validate_sku(path.stem)
             except ValueError:
                 continue
-            items.append(card_response(path.stem, theme, path))
-        return CardList(theme=theme, total=len(items), items=items)
+            paths.append(path)
+        total = len(paths)
+        start = (page - 1) * per_page
+        items = [card_response(path.stem, theme, path) for path in paths[start:start + per_page]]
+        return CardList(
+            theme=theme, total=total, count=len(items), items=items,
+            pagination=Pagination(page=page, per_page=per_page,
+                                  total_pages=(total + per_page - 1) // per_page,
+                                  has_next_page=start + per_page < total),
+        )
 
     @app.get('/api/v1/cards/{sku}', response_model=CardResponse, dependencies=[Depends(authorize)], summary='Готовая карточка по артикулу и теме', responses={404: {'description': 'Карточка ещё не сгенерирована'}})
     def get_card(sku: str, theme: Annotated[Theme, Query()]):

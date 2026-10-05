@@ -54,6 +54,32 @@ class CardAPITest(unittest.TestCase):
         self.assertTrue((self.output/'dark/S207352.png').is_file())
         self.assertFalse((self.output/'light/S207352.png').exists())
 
+    def test_pagination_sorts_and_counts_valid_cards_only(self):
+        for sku in ('C', 'A', 'B', 'CON'):
+            (self.output/f'dark/{sku}.png').write_bytes(b'card')
+        (self.output/'dark/folder.png').mkdir()
+        (self.output/'light/OTHER.png').write_bytes(b'card')
+        response = self.client.get('/api/v1/cards?theme=dark&page=2&per_page=2', headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual([item['sku'] for item in body['items']], ['C'])
+        self.assertEqual(body['total'], 3)
+        self.assertEqual(body['count'], 1)
+        self.assertEqual(body['pagination'], {'page': 2, 'per_page': 2, 'total_pages': 2, 'has_next_page': False})
+        first = self.client.get('/api/v1/cards?theme=dark&page=1&per_page=2', headers=self.headers).json()
+        self.assertEqual([item['sku'] for item in first['items']], ['A', 'B'])
+        self.assertTrue(first['pagination']['has_next_page'])
+        empty = self.client.get('/api/v1/cards?theme=dark&page=3&per_page=2', headers=self.headers).json()
+        self.assertEqual(empty['items'], [])
+        self.assertEqual(empty['total'], 3)
+        self.assertEqual(empty['count'], 0)
+
+    def test_pagination_defaults_and_invalid_parameters(self):
+        body = self.client.get('/api/v1/cards?theme=dark', headers=self.headers).json()
+        self.assertEqual(body['pagination'], {'page': 1, 'per_page': 100, 'total_pages': 0, 'has_next_page': False})
+        for query in ('page=0', 'page=-1', 'page=abc', 'per_page=0', 'per_page=501', 'per_page=abc'):
+            self.assertEqual(self.client.get('/api/v1/cards?theme=dark&'+query, headers=self.headers).status_code, 422, query)
+
     def test_validation_and_generation_failure_preserve_old_card(self):
         for field in ('theme', 'sku', 'brand', 'model', 'size', 'load_index', 'speed_index', 'image_url'):
             payload = self.payload.copy()
