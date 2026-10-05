@@ -62,7 +62,8 @@ class FeedTest(unittest.TestCase):
         for supplied, size, diameter, load, speed in [
                 ('195R14 106/104R', '195', 'R14', '106/104', 'R'),
                 ('195 R14 106R', '195', 'R14', '106', 'R'),
-                ('195R14C 106/104R', '195', 'R14', '106/104', 'R'),
+                ('195R14C 106/104R', '195', 'R14C', '106/104', 'R'),
+                ('195/75 R16C 106R', '195/75', 'R16C', '106', 'R'),
                 ('225/65 R17 106H', '225/65', 'R17', '106', 'H'),
                 ('225/65R17 106/104H', '225/65', 'R17', '106/104', 'H')]:
             with self.subTest(size=supplied):
@@ -83,6 +84,12 @@ class FeedTest(unittest.TestCase):
         self.assertEqual(product['card']['size'], '')
         with self.assertRaises(IncompleteOffer):
             validate_product(product)
+
+    def test_commercial_suffix_survives_numeric_diameter_parameter(self):
+        product = offer_data(ET.fromstring('''<offer id="GOOD"><vendor>Cordiant</vendor>
+            <name>Cordiant Model 195/75 R16C 106H</name>
+            <param name="Диаметр">16</param></offer>'''), 'https://example.com/feed.xml')
+        self.assertEqual(product['card']['diameter'], 'R16C')
 
     def run_feed(self, xml, renderer):
         with tempfile.TemporaryDirectory() as directory:

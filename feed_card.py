@@ -18,7 +18,7 @@ from build import ROOT, cutout
 from PIL import Image
 
 DEFAULT_FEED = 'https://3sta.ru/yandex/feed.xml'
-TYRE_SIZE_PATTERN = r'\b(\d{3})(?:\s*/\s*(\d{2,3}))?\s*R\s*(\d{2})(?!\d)(?:C)?(?:\s+(\d{2,3}(?:/\d{2,3})?)\s*([A-Z]))?'
+TYRE_SIZE_PATTERN = r'\b(\d{3})(?:\s*/\s*(\d{2,3}))?\s*R\s*(\d{2}(?!\d)C?)(?:\s+(\d{2,3}(?:/\d{2,3})?)\s*([A-Z]))?'
 
 
 class IncompleteOffer(ValueError):
@@ -147,6 +147,8 @@ def offer_data(element, source):
     width = param('Ширина') or (match[1] if match else '')
     profile = param('Профиль') or (match[2] if match else '')
     diameter = param('Диаметр') or (match[3] if match else '')
+    if match and match[3].upper().endswith('C') and diameter.lstrip('Rr') == match[3][:-1]:
+        diameter += 'C'
     model = value('model') or name
     if brand and model.casefold().startswith(brand.casefold()):
         model = model[len(brand):].strip()
@@ -160,7 +162,7 @@ def offer_data(element, source):
     # Do not invent a profile or treat an isolated width as a complete tyre size.
     card_size = f'{width}/{profile}' if width and profile else (width if width and match else '')
     card = {'brand': brand, 'model': model, 'size': card_size,
-            'diameter': 'R' + diameter.lstrip('Rr') if diameter else '',
+            'diameter': 'R' + diameter.lstrip('Rr').upper() if diameter else '',
             'load': param('Индекс нагрузки') or (match[4] or '' if match else ''),
             'speed': param('Индекс скорости') or (match[5] or '' if match else ''),
             'season_label': label}

@@ -27,6 +27,7 @@ from build import ROOT, cutout
 
 Theme = Literal['dark', 'light']
 SKU_PATTERN = r'^[A-Za-z0-9_-]{1,100}$'
+SIZE_PATTERN = r'^(\d{3}(?:/\d{2,3})?)\s*[Rr](\d{2}[Cc]?)$'
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +43,7 @@ class GenerateRequest(BaseModel):
     sku: str = Field(pattern=SKU_PATTERN, description='Артикул товара, например S207352')
     brand: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=200)
-    size: str = Field(pattern=r'^\d{3}/\d{2,3}\s+[Rr]\d{2}$', description='Полный размер: 225/65 R17')
+    size: str = Field(pattern=SIZE_PATTERN, description='Размер: 225/65 R17, 195/75 R16C или 195 R14C; профиль необязателен')
     load_index: str = Field(pattern=r'^\d{2,3}(?:/\d{2,3})?$')
     speed_index: str = Field(pattern=r'^[A-Za-z]{1,3}$')
     image_url: HttpUrl
@@ -52,6 +53,12 @@ class GenerateRequest(BaseModel):
     @classmethod
     def valid_sku(cls, value):
         return validate_sku(value)
+
+    @field_validator('size')
+    @classmethod
+    def normalized_size(cls, value):
+        match = re.fullmatch(SIZE_PATTERN, value)
+        return f'{match[1]} R{match[2].upper()}'
 
     def card_data(self):
         size, diameter = self.size.upper().split()

@@ -46,6 +46,30 @@ class CardAPITest(unittest.TestCase):
         # Image links work without API credentials.
         self.assertEqual(self.client.get('/images/dark/S207352.png').content, b'PNG-test')
 
+    def test_commercial_diameters_and_optional_profile(self):
+        from pydantic import ValidationError
+        for supplied, normalized, size, diameter in [
+                ('195/75 R16C', '195/75 R16C', '195/75', 'R16C'),
+                ('195/75r16c', '195/75 R16C', '195/75', 'R16C'),
+                ('195R14', '195 R14', '195', 'R14'),
+                ('195 R14C', '195 R14C', '195', 'R14C'),
+                ('225/65 R17', '225/65 R17', '225/65', 'R17')]:
+            with self.subTest(size=supplied):
+                payload = dict(self.payload, size=supplied)
+                data = GenerateRequest(**payload)
+                self.assertEqual(data.size, normalized)
+                self.assertEqual(data.card_data()['size'], size)
+                self.assertEqual(data.card_data()['diameter'], diameter)
+                with patch('api.render_card', side_effect=lambda data, path: path.write_bytes(b'card')):
+                    self.assertEqual(self.client.post('/api/v1/cards/generate', json=payload, headers=self.headers).status_code, 200)
+                    request = dict(action='generate', sku=payload['sku'], theme=payload['theme'], payload=payload)
+                    self.assertEqual(self.client.post('/cards/viewer', json=request).status_code, 200)
+                saved = self.client.get('/api/v1/cards/S207352/parameters?theme=dark', headers=self.headers).json()
+                self.assertEqual(saved['size'], normalized)
+        for size in ('195', 'R16C', '195/ R16C', '195 R16CC', '195 R160C', '195 R16X', '195 R16C 106H'):
+            with self.subTest(invalid=size), self.assertRaises(ValidationError):
+                GenerateRequest(**dict(self.payload, size=size))
+
     def test_generate_returns_link_and_publishes_to_correct_theme(self):
         def fake_render(data, path):
             self.assertEqual(data.card_data()['diameter'], 'R17')
