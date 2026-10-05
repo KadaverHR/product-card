@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from banner_card import compose
 from build import ROOT, cutout
+from card_output import save_card
 
 Theme = Literal['dark', 'light']
 SKU_PATTERN = r'^[A-Za-z0-9_-]{1,100}$'
@@ -188,14 +189,7 @@ def render_card(data, destination):
             fail(422, 'empty_foreground', 'Не удалось выделить товар на фото')
         background = ROOT/'assets'/('dark-paint-background-v7.png' if data.theme == 'dark' else 'light-paint-background-v8.png')
         card = compose(tyre, data.card_data(), background, data.theme)
-        # Save beside the final file, then publish atomically on the same volume.
-        with tempfile.NamedTemporaryFile(dir=destination.parent, prefix='.card-', suffix='.tmp', delete=False) as temporary:
-            staging = Path(temporary.name)
-        try:
-            card.save(staging, format='PNG')
-            os.replace(staging, destination)
-        finally:
-            staging.unlink(missing_ok=True)
+        save_card(card, destination)
 
 
 def create_app(output=None, public_base_url=None, api_key=None):
@@ -214,15 +208,15 @@ def create_app(output=None, public_base_url=None, api_key=None):
         if key is None or not hmac.compare_digest(key.encode(), api_key.encode()):
             fail(401, 'unauthorized', 'Invalid or missing X-API-Key')
 
-    def sku_path(sku, theme):
+    def sku_path(sku, theme, extension='.jpg'):
         try:
             validate_sku(sku)
         except ValueError as error:
             fail(422, 'invalid_sku', str(error))
-        return output/theme/f'{sku}.png'
+        return output/theme/f'{sku}{extension}'
 
     def card_response(sku, theme, path):
-        return CardResponse(sku=sku, theme=theme, image_url=f'{base_url}/images/{theme}/{quote(sku)}.png?v={path.stat().st_mtime_ns}')
+        return CardResponse(sku=sku, theme=theme, image_url=f'{base_url}/images/{theme}/{quote(sku)}{path.suffix}?v={path.stat().st_mtime_ns}')
 
     def parameters_path(sku, theme):
         sku_path(sku, theme)
@@ -262,15 +256,19 @@ def create_app(output=None, public_base_url=None, api_key=None):
         page: Annotated[int, Query(ge=1, description='Номер страницы, начиная с 1')] = 1,
         per_page: Annotated[int, Query(ge=1, le=500, description='Карточек на странице, максимум 500')] = 100,
     ):
-        paths = []
-        for path in sorted((output/theme).glob('*.png')):
+        by_sku = {}
+        for path in sorted((output/theme).iterdir()):
+            if path.suffix not in ('.png', '.jpg'):
+                continue
             if not path.is_file():
                 continue
             try:
                 validate_sku(path.stem)
             except ValueError:
                 continue
-            paths.append(path)
+            if path.stem not in by_sku or path.suffix == '.jpg':
+                by_sku[path.stem] = path
+        paths = [by_sku[sku] for sku in sorted(by_sku)]
         total = len(paths)
         start = (page - 1) * per_page
         items = [card_response(path.stem, theme, path) for path in paths[start:start + per_page]]
@@ -284,6 +282,8 @@ def create_app(output=None, public_base_url=None, api_key=None):
     @app.get('/api/v1/cards/{sku}', dependencies=[Depends(authorize)], response_model=CardResponse, summary='Готовая карточка по артикулу и теме', responses={404: {'description': 'Карточка ещё не сгенерирована'}})
     def get_card(sku: str, theme: Annotated[Theme, Query()]):
         path = sku_path(sku, theme)
+        if not path.is_file():
+            path = sku_path(sku, theme, '.png')
         if not path.is_file():
             fail(404, 'image_not_found', 'Картинка для этого артикула и темы не сгенерирована')
         return card_response(sku, theme, path)
@@ -325,9 +325,16 @@ def create_app(output=None, public_base_url=None, api_key=None):
             fail(422, 'invalid_viewer_payload', 'Generation payload must match the selected SKU and theme')
         return generate_card(data.payload)
 
-    @app.get('/images/{theme}/{sku}.png', include_in_schema=False)
+    @app.get('/images/{theme}/{sku}.jpg', include_in_schema=False)
     def image_file(theme: Theme, sku: str):
         path = sku_path(sku, theme)
+        if not path.is_file():
+            fail(404, 'image_not_found', 'Картинка не найдена')
+        return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'no-cache'})
+
+    @app.get('/images/{theme}/{sku}.png', include_in_schema=False)
+    def legacy_image_file(theme: Theme, sku: str):
+        path = sku_path(sku, theme, '.png')
         if not path.is_file():
             fail(404, 'image_not_found', 'Картинка не найдена')
         return FileResponse(path, media_type='image/png', headers={'Cache-Control': 'no-cache'})

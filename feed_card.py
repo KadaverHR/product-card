@@ -15,6 +15,7 @@ from xml.etree import ElementTree as ET
 
 from banner_card import compose
 from build import ROOT, cutout
+from card_output import save_card
 from PIL import Image
 
 DEFAULT_FEED = 'https://3sta.ru/yandex/feed.xml'
@@ -194,8 +195,8 @@ def generate(product, args):
         background = args.dark_background if theme == 'dark' else args.background
         theme_folder = args.output/theme
         theme_folder.mkdir(parents=True, exist_ok=True)
-        target = theme_folder/f'{product_id}.png'
-        compose(tyre, product['card'], background, theme, enhance=not args.raw_photo).save(target)
+        target = theme_folder/f'{product_id}.jpg'
+        save_card(compose(tyre, product['card'], background, theme, enhance=not args.raw_photo), target)
         print(f'{product_id}: {target.resolve()}')
 
 

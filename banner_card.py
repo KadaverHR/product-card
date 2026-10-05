@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 from build import ROOT,cutout,paste_fit,finish_tyre
 from branded import text,BOLD
+from card_output import save_card
 
 W,H=1200,1600
 LIME='#D4EB3B'
@@ -92,7 +93,7 @@ def main():
         tyre=cutout(source)
         for theme in (['dark','light'] if args.theme=='all' else [args.theme]):
             background=args.dark_background if theme=='dark' else args.background
-            compose(tyre,row,background,theme,enhance=not args.raw_photo).save(args.output/f'{source.stem}-{theme}.png')
+            save_card(compose(tyre,row,background,theme,enhance=not args.raw_photo),args.output/f'{source.stem}-{theme}.jpg')
         print(f'Built {source.name}')
 
 if __name__=='__main__': main()

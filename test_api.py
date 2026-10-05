@@ -46,6 +46,44 @@ class CardAPITest(unittest.TestCase):
         # Image links work without API credentials.
         self.assertEqual(self.client.get('/images/dark/S207352.png').content, b'PNG-test')
 
+    def test_jpeg_preferred_without_duplicates_and_legacy_png_still_public(self):
+        (self.output/'dark/S207352.png').write_bytes(b'old-png')
+        (self.output/'dark/S207352.jpg').write_bytes(b'new-jpg')
+        (self.output/'dark/PNG_ONLY.png').write_bytes(b'png')
+        (self.output/'dark/JPG_ONLY.jpg').write_bytes(b'jpg')
+        body = self.client.get('/api/v1/cards?theme=dark', headers=self.headers).json()
+        self.assertEqual(body['total'], 3)
+        self.assertEqual([item['sku'] for item in body['items']], ['JPG_ONLY', 'PNG_ONLY', 'S207352'])
+        self.assertIn('/S207352.jpg?', body['items'][2]['image_url'])
+        card = self.client.get('/api/v1/cards/S207352?theme=dark', headers=self.headers).json()
+        self.assertIn('/S207352.jpg?', card['image_url'])
+        jpg = self.client.get('/images/dark/S207352.jpg')
+        self.assertEqual(jpg.content, b'new-jpg')
+        self.assertEqual(jpg.headers['content-type'], 'image/jpeg')
+        png = self.client.get('/images/dark/S207352.png')
+        self.assertEqual(png.content, b'old-png')
+        self.assertEqual(png.headers['content-type'], 'image/png')
+        self.assertEqual(self.client.get('/images/dark/MISSING.jpg').status_code, 404)
+        self.assertEqual(self.client.get('/images/dark/CON.jpg').status_code, 422)
+
+    def test_conversion_keeps_png_and_existing_jpeg(self):
+        from convert_cards import convert_cards
+        from contextlib import redirect_stdout
+        original = self.output/'dark/S207352.png'
+        Image.new('RGB', (100, 100), 'white').save(original)
+        initial = original.read_bytes()
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(convert_cards(self.output), 0)
+        self.assertEqual(original.read_bytes(), initial)
+        destination = original.with_suffix('.jpg')
+        with Image.open(destination) as image:
+            self.assertEqual(image.format, 'JPEG')
+            self.assertEqual(image.size, (100, 100))
+        destination.write_bytes(b'keep-existing')
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(convert_cards(self.output), 0)
+        self.assertEqual(destination.read_bytes(), b'keep-existing')
+
     def test_commercial_diameters_and_optional_profile(self):
         from pydantic import ValidationError
         for supplied, normalized, size, diameter in [
@@ -79,8 +117,8 @@ class CardAPITest(unittest.TestCase):
             response = self.client.post('/api/v1/cards/generate', json=self.payload, headers=self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['sku'], 'S207352')
-        self.assertTrue((self.output/'dark/S207352.png').is_file())
-        self.assertFalse((self.output/'light/S207352.png').exists())
+        self.assertTrue((self.output/'dark/S207352.jpg').is_file())
+        self.assertFalse((self.output/'light/S207352.jpg').exists())
         saved = self.client.get('/api/v1/cards/S207352/parameters?theme=dark', headers=self.headers)
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json(), self.payload)
@@ -178,11 +216,13 @@ class CardAPITest(unittest.TestCase):
         source = io.BytesIO()
         Image.new('RGB', (4, 4), 'black').save(source, format='PNG')
         data = GenerateRequest(**self.payload)
-        destination = self.output/'dark/S207352.png'
+        destination = self.output/'dark/S207352.jpg'
         with patch('api.download_image', return_value=source.getvalue()), patch('api.cutout', return_value=Image.new('RGBA', (4, 4))), patch('api.compose', return_value=Image.new('RGB', (4, 4), 'red')):
             render_card(data, destination)
         with Image.open(destination) as result:
-            self.assertEqual(result.getpixel((0, 0)), (255, 0, 0))
+            self.assertEqual(result.format, 'JPEG')
+            self.assertEqual(result.size, (4, 4))
+            self.assertTrue(all(abs(a-b) <= 2 for a,b in zip(result.getpixel((0, 0)), (255, 0, 0))))
         self.assertEqual(list(destination.parent.glob('.card-*')), [])
 
     def test_private_image_hosts_are_rejected(self):
