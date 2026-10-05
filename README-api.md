@@ -25,6 +25,7 @@ Python 3.10+, терминал в папке проекта:
 
 ```powershell
 pip install -r requirements.txt
+$env:CARD_API_KEY = "your-secret-api-key"
 $env:CARD_PUBLIC_BASE_URL = "https://tools.3sta.ru"
 python -m uvicorn api:app --host 0.0.0.0 --port 8000
 ```
@@ -37,10 +38,13 @@ python -m uvicorn api:app --host 0.0.0.0 --port 8000
 
 | Переменная окружения | По умолчанию | Назначение |
 | --- | --- | --- |
+| `CARD_API_KEY` | не задан | Ключ внешнего API; без настройки API возвращает `503` |
 | `CARD_PUBLIC_BASE_URL` | `https://tools.3sta.ru` | Основа всех возвращаемых ссылок; без `/` на конце |
 | `CARD_OUTPUT_DIR` | `<папка проекта>/feed-output` | Каталог карточек с подпапками `dark` и `light` |
 
-Интерфейс, API и изображения доступны без авторизации. Заголовок `X-API-Key` не требуется, ранее заданная настройка `CARD_API_KEY` игнорируется.
+Все методы `/api/v1/cards` требуют заголовок `X-API-Key` со значением `CARD_API_KEY`. Неверный или отсутствующий ключ возвращает `401`. Если ключ на сервере не настроен, API возвращает `503`, а не открывает доступ.
+
+Интерфейс `/cards/viewer` и ссылки `/images/` доступны без авторизации. Интерфейс не запрашивает и не получает API-ключ: поиск, загрузка параметров и перегенерация выполняются через отдельный `POST /cards/viewer`. Существующего блока Nginx для `/cards/viewer` достаточно, менять конфигурацию не нужно. Эта страница общедоступна, включая перегенерацию; её операции также можно вызвать программно без ключа.
 
 Все JSON-запросы используют `Content-Type: application/json`. Тема всегда обязательна: `dark` — тёмная, `light` — светлая. Значение `all` для API не используется; нужны два запроса. Артикулы чувствительны к регистру.
 
@@ -48,6 +52,7 @@ python -m uvicorn api:app --host 0.0.0.0 --port 8000
 
 ```http
 GET /api/v1/cards?theme=dark&page=1&per_page=100
+X-API-Key: your-secret-api-key
 ```
 
 Ответ `200 OK`:
@@ -88,6 +93,7 @@ GET /api/v1/cards?theme=dark&page=1&per_page=100
 
 ```http
 GET /api/v1/cards/S207352?theme=light
+X-API-Key: your-secret-api-key
 ```
 
 Ответ `200 OK`:
@@ -117,6 +123,7 @@ GET /api/v1/cards/S207352?theme=light
 
 ```http
 POST /api/v1/cards/generate
+X-API-Key: your-secret-api-key
 Content-Type: application/json
 ```
 
@@ -168,6 +175,8 @@ Content-Type: application/json
 
 | HTTP | Причина |
 | --- | --- |
+| `401` | Неверный или отсутствующий `X-API-Key` |
+| `503` | На сервере не настроен `CARD_API_KEY` |
 | `404` | Карточка не сгенерирована |
 | `413` | Исходное фото больше 30 МБ или 20 мегапикселей |
 | `422` | Неверные/отсутствующие поля, некорректная ссылка, повреждённое фото или не удалось выделить товар |
@@ -183,12 +192,13 @@ Content-Type: application/json
 
 ```powershell
 $baseUrl = "https://tools.3sta.ru"
+$headers = @{ "X-API-Key" = "your-secret-api-key" }
 
 # Список
-Invoke-RestMethod "$baseUrl/api/v1/cards?theme=dark&page=1&per_page=100"
+Invoke-RestMethod "$baseUrl/api/v1/cards?theme=dark&page=1&per_page=100" -Headers $headers
 
 # Один артикул
-Invoke-RestMethod "$baseUrl/api/v1/cards/S207352?theme=dark"
+Invoke-RestMethod "$baseUrl/api/v1/cards/S207352?theme=dark" -Headers $headers
 
 # Генерация
 $body = @{
@@ -203,7 +213,7 @@ $body = @{
     season = "summer"
 } | ConvertTo-Json
 
-$result = Invoke-RestMethod "$baseUrl/api/v1/cards/generate" -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 180
+$result = Invoke-RestMethod "$baseUrl/api/v1/cards/generate" -Headers $headers -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 180
 $result.image_url
 ```
 
@@ -214,6 +224,6 @@ pip install -r requirements-dev.txt
 python -m unittest test_api -v
 ```
 
-Тесты проверяют список, фильтр темы, поиск/404, доступ без ключа, обязательные поля, запрет внутренних адресов, ссылки и сохранение результата. Они не обращаются к фиду и не генерируют реальные карточки.
+Тесты проверяют список, фильтр темы, поиск/404, защиту API ключом, публичный интерфейс и перегенерацию без ключа, обязательные поля, запрет внутренних адресов, ссылки и сохранение результата. Они не обращаются к фиду и не генерируют реальные карточки.
 
 Справка используемых инструментов: [FastAPI — обработка ошибок](https://fastapi.tiangolo.com/tutorial/handling-errors/), [Uvicorn — параметры запуска](https://www.uvicorn.org/settings/).

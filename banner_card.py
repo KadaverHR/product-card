@@ -75,7 +75,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('input',type=Path)
     p.add_argument('--data',type=Path,required=True)
-    p.add_argument('--background',type=Path,default=ROOT/'assets/paint-background-v4.png')
+    p.add_argument('--background',type=Path,default=ROOT/'assets/light-paint-background-v8.png')
     p.add_argument('--dark-background',type=Path,default=ROOT/'assets/dark-paint-background-v7.png')
     p.add_argument('--output',type=Path,default=ROOT/'banner-output')
     p.add_argument('--theme',choices=['all','dark','light'],default='all')

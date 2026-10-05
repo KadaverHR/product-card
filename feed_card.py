@@ -129,7 +129,7 @@ def main():
     selection.add_argument('--limit', type=int, default=1, help='First N offers; 0 means entire feed (default: 1)')
     parser.add_argument('--output', type=Path, default=ROOT/'feed-output')
     parser.add_argument('--theme', choices=['dark', 'light', 'all'], default='all')
-    parser.add_argument('--background', type=Path, default=ROOT/'assets/paint-background-v4.png')
+    parser.add_argument('--background', type=Path, default=ROOT/'assets/light-paint-background-v8.png')
     parser.add_argument('--dark-background', type=Path, default=ROOT/'assets/dark-paint-background-v7.png')
     parser.add_argument('--timeout', type=float, default=30)
     parser.add_argument('--threshold', type=int, default=235)

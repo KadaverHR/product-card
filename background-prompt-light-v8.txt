@@ -1,0 +1,11 @@
+Generated with the built-in image_gen tool. Reference: assets/paint-background-v4.png.
+
+Redraw the light-theme tyre card background as polished acrylic dry-brush artwork.
+Portrait 3:4, neutral near-white #F7F7FA opaque canvas. Preserve the sweeping motion
+from lower-left toward middle-right. Use two or three broad coherent strokes:
+violet #7c45f5, lavender tonal variations and restrained lime #d7f329 highlights.
+Keep realistic brush-bristle texture but remove scattered bubbles, neon colour
+noise, excessive splashes and glow. Leave the top 38 percent nearly empty for
+typography and the left-middle clear for index panels. Concentrate colour in
+the lower half, behind the tyre on the right. No product, tyre, logo, text,
+frame or mockup; background artwork only. Existing code composites all content.

@@ -1,4 +1,5 @@
 """Product card HTTP API. Run: python -m uvicorn api:app --port 8000."""
+import hmac
 import io
 import ipaddress
 import json
@@ -15,8 +16,9 @@ from threading import BoundedSemaphore
 from typing import Annotated, Literal
 from urllib.parse import quote, urljoin, urlsplit
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
+from fastapi.security import APIKeyHeader
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
@@ -58,6 +60,14 @@ class GenerateRequest(BaseModel):
                 'speed': self.speed_index.upper(), 'season_label': {
                     'summer': 'ЛЕТНИЕ ШИНЫ', 'winter': 'ЗИМНИЕ ШИНЫ',
                     'all-season': 'ВСЕСЕЗОННЫЕ ШИНЫ'}.get(self.season, 'ШИНЫ')}
+
+
+class ViewerRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    action: Literal['card', 'parameters', 'generate']
+    sku: str = Field(pattern=SKU_PATTERN)
+    theme: Theme
+    payload: GenerateRequest | None = None
 
 
 class CardResponse(BaseModel):
@@ -169,7 +179,7 @@ def render_card(data, destination):
             tyre = cutout(source)
         except ValueError:
             fail(422, 'empty_foreground', 'Не удалось выделить товар на фото')
-        background = ROOT/'assets'/('dark-paint-background-v7.png' if data.theme == 'dark' else 'paint-background-v4.png')
+        background = ROOT/'assets'/('dark-paint-background-v7.png' if data.theme == 'dark' else 'light-paint-background-v8.png')
         card = compose(tyre, data.card_data(), background, data.theme)
         # Save beside the final file, then publish atomically on the same volume.
         with tempfile.NamedTemporaryFile(dir=destination.parent, prefix='.card-', suffix='.tmp', delete=False) as temporary:
@@ -184,10 +194,18 @@ def render_card(data, destination):
 def create_app(output=None, public_base_url=None, api_key=None):
     output = Path(output or os.getenv('CARD_OUTPUT_DIR', str(ROOT/'feed-output'))).resolve()
     base_url = (public_base_url or os.getenv('CARD_PUBLIC_BASE_URL', 'https://tools.3sta.ru')).rstrip('/')
+    api_key = api_key if api_key is not None else os.getenv('CARD_API_KEY', '')
     for theme in ('dark', 'light'):
         (output/theme).mkdir(parents=True, exist_ok=True)
     app = FastAPI(title='Product Card API', version='1.0.0', description='Готовые карточки и генерация изображений по артикулу. Темы: dark, light.')
     slots = BoundedSemaphore(2)
+    key_header = APIKeyHeader(name='X-API-Key', auto_error=False)
+
+    def authorize(key: Annotated[str | None, Depends(key_header)]):
+        if not api_key:
+            fail(503, 'api_key_not_configured', 'API key is not configured')
+        if key is None or not hmac.compare_digest(key.encode(), api_key.encode()):
+            fail(401, 'unauthorized', 'Invalid or missing X-API-Key')
 
     def sku_path(sku, theme):
         try:
@@ -207,7 +225,7 @@ def create_app(output=None, public_base_url=None, api_key=None):
     def viewer():
         return FileResponse(ROOT/'viewer.html', media_type='text/html', headers={'Cache-Control': 'no-store'})
 
-    @app.get('/api/v1/cards/{sku}/parameters', summary='Сохранённые параметры генерации')
+    @app.get('/api/v1/cards/{sku}/parameters', dependencies=[Depends(authorize)], summary='Сохранённые параметры генерации')
     def get_parameters(sku: str, theme: Annotated[Theme, Query()]):
         saved = parameters_path(sku, theme)
         source = saved.parent/'product.json'
@@ -231,7 +249,7 @@ def create_app(output=None, public_base_url=None, api_key=None):
         except (OSError, ValueError, TypeError, AttributeError):
             fail(500, 'parameters_read_failed', 'Не удалось прочитать сохранённые параметры')
 
-    @app.get('/api/v1/cards', response_model=CardList, summary='Страница готовых карточек выбранной темы')
+    @app.get('/api/v1/cards', dependencies=[Depends(authorize)], response_model=CardList, summary='Страница готовых карточек выбранной темы')
     def list_cards(
         theme: Annotated[Theme, Query(description='Обязательная тема: dark или light')],
         page: Annotated[int, Query(ge=1, description='Номер страницы, начиная с 1')] = 1,
@@ -256,14 +274,14 @@ def create_app(output=None, public_base_url=None, api_key=None):
                                   has_next_page=start + per_page < total),
         )
 
-    @app.get('/api/v1/cards/{sku}', response_model=CardResponse, summary='Готовая карточка по артикулу и теме', responses={404: {'description': 'Карточка ещё не сгенерирована'}})
+    @app.get('/api/v1/cards/{sku}', dependencies=[Depends(authorize)], response_model=CardResponse, summary='Готовая карточка по артикулу и теме', responses={404: {'description': 'Карточка ещё не сгенерирована'}})
     def get_card(sku: str, theme: Annotated[Theme, Query()]):
         path = sku_path(sku, theme)
         if not path.is_file():
             fail(404, 'image_not_found', 'Картинка для этого артикула и темы не сгенерирована')
         return card_response(sku, theme, path)
 
-    @app.post('/api/v1/cards/generate', response_model=CardResponse, summary='Сгенерировать карточку и вернуть ссылку', responses={422: {'description': 'Некорректные поля или изображение'}, 429: {'description': 'Генератор занят'}, 502: {'description': 'Не удалось скачать фото'}})
+    @app.post('/api/v1/cards/generate', dependencies=[Depends(authorize)], response_model=CardResponse, summary='Сгенерировать карточку и вернуть ссылку', responses={422: {'description': 'Некорректные поля или изображение'}, 429: {'description': 'Генератор занят'}, 502: {'description': 'Не удалось скачать фото'}})
     def generate_card(data: GenerateRequest):
         destination = sku_path(data.sku, data.theme)
         if not slots.acquire(blocking=False):
@@ -287,6 +305,18 @@ def create_app(output=None, public_base_url=None, api_key=None):
         finally:
             slots.release()
         return card_response(data.sku, data.theme, destination)
+
+    @app.post('/cards/viewer', include_in_schema=False)
+    def viewer_action(data: ViewerRequest):
+        # Public UI operations share validation and generation with the keyed API.
+        sku_path(data.sku, data.theme)
+        if data.action == 'card':
+            return get_card(data.sku, data.theme)
+        if data.action == 'parameters':
+            return get_parameters(data.sku, data.theme)
+        if data.payload is None or (data.payload.sku, data.payload.theme) != (data.sku, data.theme):
+            fail(422, 'invalid_viewer_payload', 'Generation payload must match the selected SKU and theme')
+        return generate_card(data.payload)
 
     @app.get('/images/{theme}/{sku}.png', include_in_schema=False)
     def image_file(theme: Theme, sku: str):

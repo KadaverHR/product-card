@@ -20,13 +20,14 @@ class CardAPITest(unittest.TestCase):
         self.output = Path(self.directory.name)
         self.addCleanup(lambda: shutil.rmtree(self.output.with_name(self.output.name+'-sources'), ignore_errors=True))
         self.client = TestClient(create_app(self.output, 'https://cards.example.com', 'secret'))
-        self.headers = {}
+        self.headers = {'X-API-Key': 'secret'}
         self.payload = dict(theme='dark', sku='S207352', brand='Cordiant', model='GRAVITY SUV',
                             size='225/65 R17', load_index='106', speed_index='H',
                             image_url='https://example.com/photo.jpg', season='summer')
 
-    def test_theme_is_required_and_api_is_public(self):
-        self.assertEqual(self.client.get('/api/v1/cards?theme=dark').status_code, 200)
+    def test_theme_is_required_and_api_is_protected(self):
+        self.assertEqual(self.client.get('/api/v1/cards?theme=dark').status_code, 401)
+        self.assertEqual(self.client.get('/api/v1/cards?theme=dark', headers={'X-API-Key': 'wrong'}).status_code, 401)
         self.assertEqual(self.client.get('/api/v1/cards', headers=self.headers).status_code, 422)
         self.assertEqual(self.client.get('/api/v1/cards?theme=purple', headers=self.headers).status_code, 422)
 
@@ -68,10 +69,35 @@ class CardAPITest(unittest.TestCase):
                    'pictures': ['https://example.com/photo.jpg']}
         (folder/'product.json').write_text(json.dumps(product), encoding='utf-8')
         path = '/api/v1/cards/S207352/parameters?theme=dark'
-        self.assertEqual(self.client.get(path).status_code, 200)
+        self.assertEqual(self.client.get(path).status_code, 401)
         self.assertEqual(self.client.get(path, headers=self.headers).json(), self.payload)
         self.assertEqual(self.client.get('/cards/viewer').status_code, 200)
+        self.assertEqual(self.client.post('/cards/viewer', json={'action': 'parameters', 'sku': 'S207352', 'theme': 'dark'}).json(), self.payload)
         self.assertEqual(self.client.get('/api/v1/cards/MISSING/parameters?theme=light', headers=self.headers).status_code, 404)
+
+    def test_public_viewer_generates_without_exposing_api_key(self):
+        request = dict(action='generate', sku='S207352', theme='dark', payload=self.payload)
+        with patch('api.render_card', side_effect=lambda data, path: path.write_bytes(b'card')) as render:
+            self.assertEqual(self.client.post('/api/v1/cards/generate', json=self.payload).status_code, 401)
+            render.assert_not_called()
+            self.assertEqual(self.client.post('/cards/viewer', json=request).status_code, 200)
+            render.assert_called_once()
+        card = self.client.post('/cards/viewer', json=dict(action='card', sku='S207352', theme='dark'))
+        self.assertEqual(card.status_code, 200)
+        self.assertEqual(card.json()['sku'], 'S207352')
+        self.assertEqual(self.client.get('/api/v1/cards/S207352?theme=dark').status_code, 401)
+        request['sku'] = 'OTHER'
+        self.assertEqual(self.client.post('/cards/viewer', json=request).status_code, 422)
+        request.pop('payload')
+        self.assertEqual(self.client.post('/cards/viewer', json=request).status_code, 422)
+        page = self.client.get('/cards/viewer').text
+        self.assertNotIn('X-API-Key', page)
+        self.assertNotIn('/api/v1/cards', page)
+
+    def test_api_without_configured_key_fails_closed(self):
+        client = TestClient(create_app(self.output, 'https://cards.example.com', ''))
+        self.assertEqual(client.get('/api/v1/cards?theme=dark').status_code, 503)
+        self.assertEqual(client.get('/cards/viewer').status_code, 200)
 
     def test_regeneration_parameters_are_separate_for_each_theme(self):
         folder = self.output.with_name(self.output.name+'-sources')
