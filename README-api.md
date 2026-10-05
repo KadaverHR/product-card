@@ -4,9 +4,9 @@ API возвращает ссылки на PNG 1200×1600. Генерация и
 
 ## Интерфейс просмотра и редактирования
 
-Отдельная страница: `https://tools.3sta.ru/cards/viewer`. Введите API-ключ, артикул и выберите тему. Поиск показывает готовую карточку и подставляет сохранённые параметры. Измените бренд, модель, размер, индексы, сезон или ссылку на исходное фото и нажмите «Перегенерировать изображение».
+Отдельная страница: `https://tools.3sta.ru/cards/viewer`. Введите артикул и выберите тему. Поиск показывает готовую карточку и подставляет сохранённые параметры. Измените бренд, модель, размер, индексы, сезон или ссылку на исходное фото и нажмите «Перегенерировать изображение».
 
-`GET /api/v1/cards/{sku}/parameters?theme=dark` (заголовок `X-API-Key`) отдаёт сохранённые параметры в формате тела запроса генерации. Первоначальные значения берутся из `<CARD_OUTPUT_DIR>-sources/<sku>/product.json`. После генерации через API значения сохраняются в той же папке в `generation-dark.json` или `generation-light.json` и имеют приоритет над параметрами фида. Если параметров нет, метод возвращает `404`, а интерфейс позволяет заполнить форму вручную.
+`GET /api/v1/cards/{sku}/parameters?theme=dark` отдаёт сохранённые параметры в формате тела запроса генерации. Первоначальные значения берутся из `<CARD_OUTPUT_DIR>-sources/<sku>/product.json`. После генерации через API значения сохраняются в той же папке в `generation-dark.json` или `generation-light.json` и имеют приоритет над параметрами фида. Если параметров нет, метод возвращает `404`, а интерфейс позволяет заполнить форму вручную.
 
 Для доступа к странице добавьте внутри HTTPS-блока Nginx, рядом с `/cards/docs`:
 
@@ -25,14 +25,13 @@ Python 3.10+, терминал в папке проекта:
 
 ```powershell
 pip install -r requirements.txt
-$env:CARD_API_KEY = "replace-with-your-secret-key"
 $env:CARD_PUBLIC_BASE_URL = "https://tools.3sta.ru"
 python -m uvicorn api:app --host 0.0.0.0 --port 8000
 ```
 
-Можно хранить настройки в локальном `.env`: скопируйте `.env.example`, замените ключ и запускайте `python -m uvicorn api:app --env-file .env --host 0.0.0.0 --port 8000`. Файл `.env` исключён из Git.
+Можно хранить настройки адреса и каталога в локальном `.env` и запускать `python -m uvicorn api:app --env-file .env --host 0.0.0.0 --port 8000`. Файл `.env` исключён из Git.
 
-Сервер работает, пока открыт процесс. Документация с возможностью отправлять запросы: `https://tools.3sta.ru/docs`; OpenAPI: `/openapi.json`; альтернативная документация: `/redoc`. В Swagger нажмите **Authorize** и введите ключ.
+Сервер работает, пока открыт процесс. Документация на сервере: `https://tools.3sta.ru/cards/docs`; OpenAPI: `/openapi.json`. При прямом запуске документация доступна по `/docs` и `/redoc`.
 
 Для внешнего доступа разместите проект на сервере за HTTPS-прокси и задайте `CARD_PUBLIC_BASE_URL` равным внешнему адресу, например `https://tools.3sta.ru`. Сам запуск на компьютере не создаёт публичный адрес. Прокси должен передавать `/api`, `/images` и при необходимости `/docs`, иметь тайм-аут на генерацию около 180 секунд. Используйте один процесс Uvicorn: лимит генерации действует внутри процесса.
 
@@ -40,9 +39,8 @@ python -m uvicorn api:app --host 0.0.0.0 --port 8000
 | --- | --- | --- |
 | `CARD_PUBLIC_BASE_URL` | `https://tools.3sta.ru` | Основа всех возвращаемых ссылок; без `/` на конце |
 | `CARD_OUTPUT_DIR` | `<папка проекта>/feed-output` | Каталог карточек с подпапками `dark` и `light` |
-| `CARD_API_KEY` | пусто | Ключ для запросов API в заголовке `X-API-Key` |
 
-Если ключ не задан, API работает без авторизации — удобно для локальной разработки. Для внешнего сервера задайте ключ. Ссылки на сами PNG доступны без ключа, чтобы их можно было использовать в каталоге или на сайте.
+Интерфейс, API и изображения доступны без авторизации. Заголовок `X-API-Key` не требуется, ранее заданная настройка `CARD_API_KEY` игнорируется.
 
 Все JSON-запросы используют `Content-Type: application/json`. Тема всегда обязательна: `dark` — тёмная, `light` — светлая. Значение `all` для API не используется; нужны два запроса. Артикулы чувствительны к регистру.
 
@@ -50,7 +48,6 @@ python -m uvicorn api:app --host 0.0.0.0 --port 8000
 
 ```http
 GET /api/v1/cards?theme=dark&page=1&per_page=100
-X-API-Key: replace-with-your-secret-key
 ```
 
 Ответ `200 OK`:
@@ -91,7 +88,6 @@ X-API-Key: replace-with-your-secret-key
 
 ```http
 GET /api/v1/cards/S207352?theme=light
-X-API-Key: replace-with-your-secret-key
 ```
 
 Ответ `200 OK`:
@@ -122,7 +118,6 @@ X-API-Key: replace-with-your-secret-key
 ```http
 POST /api/v1/cards/generate
 Content-Type: application/json
-X-API-Key: replace-with-your-secret-key
 ```
 
 Тело:
@@ -173,7 +168,6 @@ X-API-Key: replace-with-your-secret-key
 
 | HTTP | Причина |
 | --- | --- |
-| `401` | Неверный или отсутствующий ключ при включённой авторизации |
 | `404` | Карточка не сгенерирована |
 | `413` | Исходное фото больше 30 МБ или 20 мегапикселей |
 | `422` | Неверные/отсутствующие поля, некорректная ссылка, повреждённое фото или не удалось выделить товар |
@@ -188,14 +182,13 @@ X-API-Key: replace-with-your-secret-key
 ## Примеры PowerShell
 
 ```powershell
-$headers = @{ "X-API-Key" = "replace-with-your-secret-key" }
 $baseUrl = "https://tools.3sta.ru"
 
 # Список
-Invoke-RestMethod "$baseUrl/api/v1/cards?theme=dark&page=1&per_page=100" -Headers $headers
+Invoke-RestMethod "$baseUrl/api/v1/cards?theme=dark&page=1&per_page=100"
 
 # Один артикул
-Invoke-RestMethod "$baseUrl/api/v1/cards/S207352?theme=dark" -Headers $headers
+Invoke-RestMethod "$baseUrl/api/v1/cards/S207352?theme=dark"
 
 # Генерация
 $body = @{
@@ -210,7 +203,7 @@ $body = @{
     season = "summer"
 } | ConvertTo-Json
 
-$result = Invoke-RestMethod "$baseUrl/api/v1/cards/generate" -Method Post -Headers $headers -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 180
+$result = Invoke-RestMethod "$baseUrl/api/v1/cards/generate" -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 180
 $result.image_url
 ```
 
@@ -221,6 +214,6 @@ pip install -r requirements-dev.txt
 python -m unittest test_api -v
 ```
 
-Тесты проверяют список, фильтр темы, поиск/404, авторизацию, обязательные поля, запрет внутренних адресов, ссылки и сохранение результата. Они не обращаются к фиду и не генерируют реальные карточки.
+Тесты проверяют список, фильтр темы, поиск/404, доступ без ключа, обязательные поля, запрет внутренних адресов, ссылки и сохранение результата. Они не обращаются к фиду и не генерируют реальные карточки.
 
 Справка используемых инструментов: [FastAPI — обработка ошибок](https://fastapi.tiangolo.com/tutorial/handling-errors/), [Uvicorn — параметры запуска](https://www.uvicorn.org/settings/).

@@ -1,5 +1,4 @@
 """Product card HTTP API. Run: python -m uvicorn api:app --port 8000."""
-import hmac
 import io
 import ipaddress
 import json
@@ -16,9 +15,8 @@ from threading import BoundedSemaphore
 from typing import Annotated, Literal
 from urllib.parse import quote, urljoin, urlsplit
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
-from fastapi.security import APIKeyHeader
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
@@ -186,16 +184,10 @@ def render_card(data, destination):
 def create_app(output=None, public_base_url=None, api_key=None):
     output = Path(output or os.getenv('CARD_OUTPUT_DIR', str(ROOT/'feed-output'))).resolve()
     base_url = (public_base_url or os.getenv('CARD_PUBLIC_BASE_URL', 'https://tools.3sta.ru')).rstrip('/')
-    api_key = api_key if api_key is not None else os.getenv('CARD_API_KEY', '')
     for theme in ('dark', 'light'):
         (output/theme).mkdir(parents=True, exist_ok=True)
     app = FastAPI(title='Product Card API', version='1.0.0', description='Готовые карточки и генерация изображений по артикулу. Темы: dark, light.')
-    key_header = APIKeyHeader(name='X-API-Key', auto_error=False)
     slots = BoundedSemaphore(2)
-
-    def authorize(key: Annotated[str | None, Depends(key_header)]):
-        if api_key and (key is None or not hmac.compare_digest(key.encode(), api_key.encode())):
-            fail(401, 'unauthorized', 'Неверный или отсутствующий X-API-Key')
 
     def sku_path(sku, theme):
         try:
@@ -215,7 +207,7 @@ def create_app(output=None, public_base_url=None, api_key=None):
     def viewer():
         return FileResponse(ROOT/'viewer.html', media_type='text/html', headers={'Cache-Control': 'no-store'})
 
-    @app.get('/api/v1/cards/{sku}/parameters', dependencies=[Depends(authorize)], summary='Сохранённые параметры генерации')
+    @app.get('/api/v1/cards/{sku}/parameters', summary='Сохранённые параметры генерации')
     def get_parameters(sku: str, theme: Annotated[Theme, Query()]):
         saved = parameters_path(sku, theme)
         source = saved.parent/'product.json'
@@ -239,7 +231,7 @@ def create_app(output=None, public_base_url=None, api_key=None):
         except (OSError, ValueError, TypeError, AttributeError):
             fail(500, 'parameters_read_failed', 'Не удалось прочитать сохранённые параметры')
 
-    @app.get('/api/v1/cards', response_model=CardList, dependencies=[Depends(authorize)], summary='Страница готовых карточек выбранной темы')
+    @app.get('/api/v1/cards', response_model=CardList, summary='Страница готовых карточек выбранной темы')
     def list_cards(
         theme: Annotated[Theme, Query(description='Обязательная тема: dark или light')],
         page: Annotated[int, Query(ge=1, description='Номер страницы, начиная с 1')] = 1,
@@ -264,14 +256,14 @@ def create_app(output=None, public_base_url=None, api_key=None):
                                   has_next_page=start + per_page < total),
         )
 
-    @app.get('/api/v1/cards/{sku}', response_model=CardResponse, dependencies=[Depends(authorize)], summary='Готовая карточка по артикулу и теме', responses={404: {'description': 'Карточка ещё не сгенерирована'}})
+    @app.get('/api/v1/cards/{sku}', response_model=CardResponse, summary='Готовая карточка по артикулу и теме', responses={404: {'description': 'Карточка ещё не сгенерирована'}})
     def get_card(sku: str, theme: Annotated[Theme, Query()]):
         path = sku_path(sku, theme)
         if not path.is_file():
             fail(404, 'image_not_found', 'Картинка для этого артикула и темы не сгенерирована')
         return card_response(sku, theme, path)
 
-    @app.post('/api/v1/cards/generate', response_model=CardResponse, dependencies=[Depends(authorize)], summary='Сгенерировать карточку и вернуть ссылку', responses={422: {'description': 'Некорректные поля или изображение'}, 429: {'description': 'Генератор занят'}, 502: {'description': 'Не удалось скачать фото'}})
+    @app.post('/api/v1/cards/generate', response_model=CardResponse, summary='Сгенерировать карточку и вернуть ссылку', responses={422: {'description': 'Некорректные поля или изображение'}, 429: {'description': 'Генератор занят'}, 502: {'description': 'Не удалось скачать фото'}})
     def generate_card(data: GenerateRequest):
         destination = sku_path(data.sku, data.theme)
         if not slots.acquire(blocking=False):

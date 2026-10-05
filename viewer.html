@@ -21,7 +21,6 @@
 <main>
   <h1>Просмотр и перегенерация</h1>
   <form class="search" id="search">
-    <label>API-ключ<input id="key" type="password" autocomplete="off" placeholder="Ключ доступа"></label>
     <label>Артикул<input id="sku" required pattern="[A-Za-z0-9_-]{1,100}" placeholder="S207352"></label>
     <label>Тема<select id="theme"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></label>
     <button id="find">Найти</button>
@@ -50,9 +49,9 @@ let selected=null;
 function message(text,error=false){el('message').hidden=false;el('message').textContent=text;el('message').classList.toggle('error',error)}
 function showImage(data){el('preview').src=data.image_url;el('preview').hidden=false;el('original').href=data.image_url;el('original').hidden=false;el('missing').hidden=true}
 async function api(path,options={}){
-  const response=await fetch(path,{...options,headers:{'X-API-Key':el('key').value,...options.headers}});
+  const response=await fetch(path,options);
   const data=await response.json();
-  if(!response.ok){const detail=data.detail;const text=response.status===401?'Неверный или отсутствующий API-ключ.':Array.isArray(detail)?detail.map(x=>x.loc.join('.')+': '+x.msg).join('\n'):detail?.message||'Ошибка запроса';throw Object.assign(new Error(text),{status:response.status})}
+  if(!response.ok){const detail=data.detail;const text=Array.isArray(detail)?detail.map(x=>x.loc.join('.')+': '+x.msg).join('\n'):detail?.message||'Ошибка запроса';throw Object.assign(new Error(text),{status:response.status})}
   return data;
 }
 el('search').addEventListener('submit',async event=>{
