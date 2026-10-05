@@ -2,6 +2,7 @@
 """Scripted 3:4 product infographics. Product values are supplied through JSON."""
 import argparse
 import json
+import os
 from pathlib import Path
 import math
 import numpy as np
@@ -13,11 +14,18 @@ VIOLET='#7C45F5'
 LIME='#D4EB3B'
 def find_font(bold=False):
     names = ['DejaVuSans-Bold.ttf', 'arialbd.ttf'] if bold else ['DejaVuSans.ttf', 'arial.ttf']
-    folders = [ROOT/'assets/fonts', Path('C:/Windows/Fonts'), Path('/usr/share/fonts/truetype/dejavu')]
+    folders = [ROOT/'assets/fonts']
+    if os.name == 'nt':
+        folders.append(Path('C:/Windows/Fonts'))
+    else:
+        folders.append(Path('/usr/share/fonts/truetype/dejavu'))
     for folder in folders:
         for name in names:
-            if (folder/name).is_file():
-                return str(folder/name)
+            try:
+                if (folder/name).is_file():
+                    return str(folder/name)
+            except PermissionError:
+                continue
     raise FileNotFoundError('Install DejaVu Sans or Arial, or place DejaVuSans fonts in assets/fonts')
 
 FONT=find_font()
