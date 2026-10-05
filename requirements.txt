@@ -1,0 +1,5 @@
+Pillow>=10
+numpy>=1.24
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+python-dotenv>=1,<2
