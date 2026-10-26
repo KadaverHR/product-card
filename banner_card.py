@@ -42,18 +42,23 @@ def compose(tyre,data,background,theme,enhance=True):
     text(d,(60,175),data['brand'].upper(),94,fg,True,maxwidth=1068)
     text(d,(64,288),data['model'],62,fg,maxwidth=1068)
     # Keep the diameter badge beside the size, with a shared text baseline.
+    display_size = data['size']
+    display_diameter = data['diameter']
+    if display_diameter.startswith('-'):
+        display_size += '-'
+        display_diameter = display_diameter[1:]
     font_size=128
     while True:
         font=ImageFont.truetype(BOLD,font_size)
-        size_width=d.textlength(data['size'],font=font)
-        diameter_width=d.textlength(data['diameter'],font=font)
+        size_width=d.textlength(display_size,font=font)
+        diameter_width=d.textlength(display_diameter,font=font)
         if size_width+24+diameter_width+48 <= 1068 or font_size <= 14:
             break
         font_size-=1
     badge_x=58+size_width+24
     d.rounded_rectangle((badge_x,386,badge_x+diameter_width+48,532),radius=24,fill=LIME)
-    d.text((58,418),data['size'],font=font,fill=fg,anchor='lt')
-    d.text((badge_x+24,418),data['diameter'],font=font,fill='#25252D',anchor='lt')
+    d.text((58,418),display_size,font=font,fill=fg,anchor='lt')
+    d.text((badge_x+24,418),display_diameter,font=font,fill='#25252D',anchor='lt')
     # Deliberately oversized real source: bottom and right are cropped by canvas.
     scale=1390/tyre.height
     enlarged=tyre.resize((round(tyre.width*scale),1390),Image.Resampling.LANCZOS)
