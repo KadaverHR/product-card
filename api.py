@@ -25,10 +25,10 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 from banner_card import compose
 from build import ROOT, cutout
 from card_output import save_card
+from tyre_sizes import parse_size
 
 Theme = Literal['dark', 'light']
 SKU_PATTERN = r'^[A-Za-z0-9_-]{1,100}$'
-SIZE_PATTERN = r'^(\d{3}(?:/\d{2,3})?)\s*[Rr](\d{2}[Cc]?)$'
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +44,7 @@ class GenerateRequest(BaseModel):
     sku: str = Field(pattern=SKU_PATTERN, description='Артикул товара, например S207352')
     brand: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=200)
-    size: str = Field(pattern=SIZE_PATTERN, description='Размер: 225/65 R17, 195/75 R16C или 195 R14C; профиль необязателен')
+    size: str = Field(description='Размер: 225/65 R17, 195 R14C, 225/75 R16 TL или 33x10.5-15 LT')
     load_index: str = Field(pattern=r'^\d{2,3}(?:/\d{2,3})?$')
     speed_index: str = Field(pattern=r'^[A-Za-z]{1,3}$')
     image_url: HttpUrl
@@ -58,13 +58,12 @@ class GenerateRequest(BaseModel):
     @field_validator('size')
     @classmethod
     def normalized_size(cls, value):
-        match = re.fullmatch(SIZE_PATTERN, value)
-        return f'{match[1]} R{match[2].upper()}'
+        return parse_size(value).normalized
 
     def card_data(self):
-        size, diameter = self.size.upper().split()
-        return {'brand': self.brand, 'model': self.model, 'size': size,
-                'diameter': diameter, 'load': self.load_index,
+        parsed = parse_size(self.size)
+        return {'brand': self.brand, 'model': self.model, 'size': parsed.size,
+                'diameter': parsed.diameter, 'load': self.load_index,
                 'speed': self.speed_index.upper(), 'season_label': {
                     'summer': 'ЛЕТНИЕ ШИНЫ', 'winter': 'ЗИМНИЕ ШИНЫ',
                     'all-season': 'ВСЕСЕЗОННЫЕ ШИНЫ'}.get(self.season, 'ШИНЫ')}

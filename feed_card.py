@@ -15,11 +15,11 @@ from xml.etree import ElementTree as ET
 
 from banner_card import compose
 from build import ROOT, cutout
-from card_output import save_card
+from card_output import compression_profile, save_card
+from tyre_sizes import SIZE_RE, from_match
 from PIL import Image
 
 DEFAULT_FEED = 'https://3sta.ru/yandex/feed.xml'
-TYRE_SIZE_PATTERN = r'\b(\d{3})(?:\s*/\s*(\d{2,3}))?\s*R\s*(\d{2}(?!\d)C?)(?:\s+(\d{2,3}(?:/\d{2,3})?)\s*([A-Z]))?'
 
 
 class IncompleteOffer(ValueError):
@@ -144,16 +144,24 @@ def offer_data(element, source):
         return by_name.get(name.casefold(), '')
     name, brand = value('name'), value('vendor')
     size = param('Размер')
-    match = re.search(TYRE_SIZE_PATTERN, size or name, re.I)
-    width = param('Ширина') or (match[1] if match else '')
-    profile = param('Профиль') or (match[2] if match else '')
-    diameter = param('Диаметр') or (match[3] if match else '')
-    if match and match[3].upper().endswith('C') and diameter.lstrip('Rr') == match[3][:-1]:
-        diameter += 'C'
+    match = SIZE_RE.search(size or name)
+    try:
+        parsed = from_match(match) if match else None
+    except ValueError:
+        parsed = None
+        match = None
+    width, profile = param('Ширина'), param('Профиль')
+    diameter = parsed.diameter if parsed else ('R' + param('Диаметр').lstrip('Rr').upper() if param('Диаметр') else '')
+    if parsed and param('Диаметр'):
+        # Preserve TL/LT/C supplied only by the diameter parameter as well.
+        suffix = re.search(r'(C?(?:\s*(?:TL|LT)){1,2}|C)$', param('Диаметр'), re.I)
+        if suffix and not re.search(r'(?:C|TL|LT)$', diameter, re.I):
+            diameter += re.sub(r'\s+', '', suffix[0]).upper()
+    indices = re.match(r'\s+(\d{2,3}(?:/\d{2,3})?)\s*([A-Z])\b', (size or name)[match.end():], re.I) if match else None
     model = value('model') or name
     if brand and model.casefold().startswith(brand.casefold()):
         model = model[len(brand):].strip()
-    model_size = re.search(TYRE_SIZE_PATTERN, model, re.I)
+    model_size = SIZE_RE.search(model)
     if model_size:
         model = model[:model_size.start()].strip()
     season = param('Сезон').casefold()
@@ -161,11 +169,11 @@ def offer_data(element, source):
              'всесезонная': 'ВСЕСЕЗОННЫЕ ШИНЫ'}.get(season, 'ШИНЫ')
     # A missing profile is valid only when a recognised size supplies the context.
     # Do not invent a profile or treat an isolated width as a complete tyre size.
-    card_size = f'{width}/{profile}' if width and profile else (width if width and match else '')
+    card_size = parsed.size if parsed else (f'{width}/{profile}' if width and profile else '')
     card = {'brand': brand, 'model': model, 'size': card_size,
-            'diameter': 'R' + diameter.lstrip('Rr').upper() if diameter else '',
-            'load': param('Индекс нагрузки') or (match[4] or '' if match else ''),
-            'speed': param('Индекс скорости') or (match[5] or '' if match else ''),
+            'diameter': diameter,
+            'load': param('Индекс нагрузки') or (indices[1] if indices else ''),
+            'speed': param('Индекс скорости') or (indices[2].upper() if indices else ''),
             'season_label': label}
     pictures = [urljoin(source, f['value']) for f in fields if f['tag'] == 'picture' and f['value']]
     return {'id': element.get('id', ''), 'attributes': dict(element.attrib),
@@ -196,7 +204,9 @@ def generate(product, args):
         theme_folder = args.output/theme
         theme_folder.mkdir(parents=True, exist_ok=True)
         target = theme_folder/f'{product_id}.jpg'
-        save_card(compose(tyre, product['card'], background, theme, enhance=not args.raw_photo), target)
+        save_card(compose(tyre, product['card'], background, theme, enhance=not args.raw_photo), target,
+                  quality=getattr(args, 'jpeg_quality', None), max_edge=getattr(args, 'max_edge', None),
+                  subsampling=getattr(args, 'jpeg_subsampling', None))
         print(f'{product_id}: {target.resolve()}')
 
 
@@ -211,10 +221,17 @@ def main():
     parser.add_argument('--background', type=Path, default=ROOT/'assets/light-paint-background-v8.png')
     parser.add_argument('--dark-background', type=Path, default=ROOT/'assets/dark-paint-background-v7.png')
     parser.add_argument('--timeout', type=float, default=30)
+    parser.add_argument('--jpeg-quality', type=int, help='JPEG quality 1..95; default CARD_JPEG_QUALITY or 82')
+    parser.add_argument('--max-edge', type=int, help='Maximum output edge; default CARD_MAX_EDGE or 1200; never upscales')
+    parser.add_argument('--jpeg-subsampling', type=int, choices=(0, 1, 2), help='0: 4:4:4; 2: 4:2:0 (default)')
     parser.add_argument('--feed-attempts', type=int, default=5, help='Feed download attempts (default: 5)')
     parser.add_argument('--threshold', type=int, default=235)
     parser.add_argument('--raw-photo', action='store_true', help='Disable tyre tone and sharpness preset')
     args = parser.parse_args()
+    try:
+        compression_profile(args.jpeg_quality, args.max_edge, args.jpeg_subsampling)
+    except ValueError as error:
+        parser.error(str(error))
     if args.limit < 0 or args.timeout <= 0 or args.feed_attempts < 1 or not 0 <= args.threshold <= 255:
         parser.error('limit must be >= 0, timeout > 0, feed-attempts >= 1, threshold between 0 and 255')
     for theme in ('dark', 'light'):

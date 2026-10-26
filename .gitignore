@@ -30,7 +30,18 @@ dist/
 /*-sources/
 *.log
 *.tmp
+.card-compression.sqlite3*
 qa-*.png
+
+# Local assistant tests, QA scripts and preview artifacts
+/test_api.py
+/test_feed.py
+/test_compression.py
+/test_sizes.py
+/qa_*.py
+/qa-*
+/preview-output/
+/.github/workflows/tests.yml
 
 # Editors and operating systems
 .idea/
