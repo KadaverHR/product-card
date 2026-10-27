@@ -44,7 +44,7 @@ class GenerateRequest(BaseModel):
     sku: str = Field(pattern=SKU_PATTERN, description='Артикул товара, например S207352')
     brand: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=200)
-    size: str = Field(description='Размер: 225/65 R17, 195 R14C, 225/75 R16 TL или 33x10.5-15 LT')
+    size: str = Field(description='Размер: 225/65 R17, 255/85-16, 195 R14C, 225/75 R16 TL или 33x10.5-15 LT')
     load_index: str = Field(pattern=r'^\d{2,3}(?:/\d{2,3})?$')
     speed_index: str = Field(pattern=r'^[A-Za-z]{1,3}$')
     image_url: HttpUrl
