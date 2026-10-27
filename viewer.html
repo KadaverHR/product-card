@@ -29,7 +29,7 @@
   <p id="type-note" class="note">Легковые шины: доступны тёмная и светлая темы.</p>
   <div id="message" class="message" role="status" hidden></div>
   <div class="layout" id="editor" hidden>
-    <section class="panel"><h2>Изображение</h2><p id="missing" hidden>Карточка ещё не создана.</p><img id="preview" class="preview" alt="Карточка товара" hidden><a id="original" target="_blank" rel="noopener" hidden>Открыть изображение</a></section>
+    <section class="panel"><h2>Изображение</h2><p id="missing" hidden>Карточка ещё не создана.</p><img id="preview" class="preview" alt="Карточка товара" hidden><a id="original" target="_blank" rel="noopener" hidden>Открыть изображение</a><p><button id="upload-ozon" type="button" hidden>Загрузить на Ozon</button></p><p id="ozon-note" class="note" hidden>В Ozon заменятся первые два фото: карточка и памятка хранения. Остальные фото сохранятся. Артикул Ozon: <strong id="ozon-offer"></strong>.</p></section>
     <section class="panel"><h2>Параметры карточки</h2><p id="identity"></p>
       <form id="generate" class="fields">
         <label>Бренд<input name="brand" required maxlength="100"></label>
@@ -66,18 +66,32 @@ function applyType(){
   form.elements.size.placeholder=truck?'Любая запись размера, например 11R22.5 или 12-16.5 NHS':'225/75 R16 TL или 33х10.5-15 LT';
   el('type-note').textContent=truck?'Грузовые шины: тёмная тема, свободный формат размера. Характеристики и индексы можно оставить пустыми.':'Легковые шины: доступны тёмная и светлая темы, индексы обязательны.';
 }
-function clearEditor(){selected=null;el('editor').hidden=true;el('preview').hidden=true;el('original').hidden=true;el('preview').removeAttribute('src');el('original').removeAttribute('href');el('missing').hidden=true;el('message').hidden=true}
-function busy(value){for(const id of ['find','sku','theme','product_type'])el(id).disabled=value;el('save').disabled=value}
+function clearEditor(){selected=null;el('upload-ozon').hidden=true;el('ozon-note').hidden=true;el('editor').hidden=true;el('preview').hidden=true;el('original').hidden=true;el('preview').removeAttribute('src');el('original').removeAttribute('href');el('missing').hidden=true;el('message').hidden=true}
+function busy(value){for(const id of ['find','sku','theme','product_type','upload-ozon'])el(id).disabled=value;el('save').disabled=value}
 el('product_type').addEventListener('change',()=>{clearEditor();form.reset();applyType()});
 el('theme').addEventListener('change',clearEditor);
 el('sku').addEventListener('input',clearEditor);
 applyType();
 function message(text,error=false){el('message').hidden=false;el('message').textContent=text;el('message').classList.toggle('error',error)}
-function showImage(data){el('preview').src=data.image_url;el('preview').hidden=false;el('original').href=data.image_url;el('original').hidden=false;el('missing').hidden=true}
+function showImage(data){el('preview').src=data.image_url;el('preview').hidden=false;el('original').href=data.image_url;el('original').hidden=false;el('missing').hidden=true;el('upload-ozon').hidden=false;el('ozon-note').hidden=false;el('ozon-offer').textContent=data.sku+'SU'}
+async function readResponse(response){
+  const body=await response.text();let data;
+  try{data=JSON.parse(body)}catch(error){throw Object.assign(new Error('Сервер вернул HTTP '+response.status+' вместо JSON. '+([502,503,504].includes(response.status)?'API недоступен или прокси прервал ожидание. Проверьте службу product-card и таймаут Nginx.':'Проверьте, что /cards/viewer направлен в Product Card API.')),{status:response.status})}
+  if(!response.ok){const detail=data.detail;const text=Array.isArray(detail)?detail.map(x=>x.loc.join('.')+': '+x.msg).join('\n'):typeof detail==='string'?detail:detail?.message||'Ошибка запроса HTTP '+response.status;throw Object.assign(new Error(text),{status:response.status})}
+  return data;
+}
 async function api(action,sku,theme,product_type,payload){
-  const response=await fetch('/cards/viewer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,sku,theme,product_type,payload})});
-  const data=await response.json();
-  if(!response.ok){const detail=data.detail;const text=Array.isArray(detail)?detail.map(x=>x.loc.join('.')+': '+x.msg).join('\n'):detail?.message||'Ошибка запроса';throw Object.assign(new Error(text),{status:response.status})}
+  const response=await fetch('/cards/viewer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,sku,theme,product_type,payload,background:['generate','ozon_upload'].includes(action)})});
+  let data=await readResponse(response);
+  if(data.job_id){
+    const jobId=data.job_id;
+    while(true){
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      data=await readResponse(await fetch('/cards/viewer?job_id='+encodeURIComponent(jobId),{cache:'no-store'}));
+      if(data.status==='completed')return data.result;
+      if(data.status==='failed')throw Object.assign(new Error(data.detail?.message||'Ошибка обработки'),{status:data.http_status});
+    }
+  }
   return data;
 }
 el('search').addEventListener('submit',async event=>{
@@ -99,6 +113,12 @@ form.addEventListener('submit',async event=>{
   for(const control of form.elements)control.disabled=true;
   try{showImage(await api('generate',selected.sku,selected.theme,selected.product_type,data));message('Карточка обновлена. Параметры сохранены.')}
   catch(error){message(error.message,true)}finally{for(const control of form.elements)control.disabled=false;applyType();busy(false)}
+});
+el('upload-ozon').addEventListener('click',async()=>{
+  if(!selected)return;
+  busy(true);message('Скачивание исходных фото и отправка в Ozon…');
+  try{const result=await api('ozon_upload',selected.sku,selected.theme,selected.product_type);message(result.offer_id+': '+result.message+' Сохранено остальных фото: '+result.preserved_count+'.')}
+  catch(error){message(error.message,true)}finally{busy(false)}
 });
 </script>
 </body>

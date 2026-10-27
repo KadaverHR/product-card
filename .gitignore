@@ -41,6 +41,8 @@ qa-*.png
 /test_cutout.py
 /test_truck.py
 /test_product_types.py
+/test_ozon.py
+/*-ozon-backups/
 /qa_*.py
 /qa-*
 /preview-output/

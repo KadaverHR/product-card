@@ -16,6 +16,7 @@ API возвращает JSON со ссылками на готовые изоб
 | GET | `/api/v1/cards/{sku}?theme=dark` | Ссылка на карточку | `X-API-Key` |
 | GET | `/api/v1/cards/{sku}/parameters?theme=dark` | Сохранённые параметры | `X-API-Key` |
 | POST | `/api/v1/cards/generate` | Создание или перезапись карточки | `X-API-Key` |
+| POST | `/api/v1/cards/{sku}/ozon?theme=dark&product_type=passenger` | Замена первых двух фото товара Ozon | `X-API-Key` |
 | GET | `/images/{theme}/{sku}.jpg` | Сам JPG-файл | Нет |
 | GET | `/images/{theme}/{sku}.png` | Старый PNG-файл, если сохранён | Нет |
 | GET / POST | `/cards/viewer` | Страница и операции публичного редактора | Нет |
@@ -23,6 +24,8 @@ API возвращает JSON со ссылками на готовые изоб
 ## Интерфейс просмотра и редактирования
 
 Отдельная страница: `https://tools.3sta.ru/cards/viewer`. Введите артикул и выберите тему. Поиск показывает готовую карточку и подставляет сохранённые параметры. Измените бренд, модель, размер, индексы, сезон или ссылку на исходное фото и нажмите «Перегенерировать изображение».
+
+После создания или поиска изображения доступна кнопка «Загрузить на Ozon». Настройка, порядок фото и архивирование исходников описаны в [OZON.md](OZON.md). Генерация и загрузка из интерфейса выполняются фоновыми задачами, чтобы не держать запрос до окончания обработки.
 
 Параметры загружаются из соседней папки `<CARD_OUTPUT_DIR>-sources/<sku>/`. Если параметров нет, интерфейс позволяет заполнить форму вручную. Подробный контракт защищённого метода получения параметров приведён ниже.
 
@@ -48,7 +51,7 @@ $env:CARD_PUBLIC_BASE_URL = "https://tools.3sta.ru"
 python -m uvicorn api:app --host 127.0.0.1 --port 8010 --workers 1
 ```
 
-Можно хранить `CARD_API_KEY`, адрес и каталог в локальном `.env` и запускать `python -m uvicorn api:app --env-file .env --host 127.0.0.1 --port 8010 --workers 1`. Сам `api.py` не загружает `.env` автоматически. Файл `.env` исключён из Git.
+Можно хранить настройки в `.env` в корне проекта: `api.py` загружает его автоматически. Уже заданные переменные процесса имеют приоритет (включая `/etc/product-card.conf`). Файл `.env` исключён из Git.
 
 На действующем Ubuntu-сервере проект расположен в `/opt/product-card`, сервис — `product-card.service`, настройки процесса — `/etc/product-card.conf`. Перезапуск: `sudo systemctl restart product-card`. Внутренний адрес — `http://127.0.0.1:8010`; для внешних запросов используйте HTTPS-домен, без порта `8010`.
 
@@ -296,16 +299,5 @@ $body = @{
 $result = Invoke-RestMethod "$baseUrl/api/v1/cards/generate" -Headers $headers -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 180
 $result.image_url
 ```
-
-## Проверка API
-
-Автоматические тесты и тестовый workflow оставлены локально и исключены из Git по запросу владельца. Команды ниже работают только при наличии локальных тестовых файлов; в серверном клоне их нет.
-
-```powershell
-pip install -r requirements-dev.txt
-python -m unittest test_api -v
-```
-
-Тесты проверяют список, фильтр темы, поиск/404, защиту API ключом, публичный интерфейс и перегенерацию без ключа, обязательные поля, запрет внутренних адресов, ссылки и сохранение результата. Они не обращаются к фиду и не генерируют реальные карточки.
 
 Справка используемых инструментов: [FastAPI — обработка ошибок](https://fastapi.tiangolo.com/tutorial/handling-errors/), [Uvicorn — параметры запуска](https://www.uvicorn.org/settings/).
