@@ -20,14 +20,17 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
 from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from banner_card import compose
 from build import ROOT, cutout
 from card_output import save_card
 from tyre_sizes import parse_size
+from truck_card import compose_truck
+from truck_sizes import split_truck_size
 
 Theme = Literal['dark', 'light']
+ProductType = Literal['passenger', 'truck']
 SKU_PATTERN = r'^[A-Za-z0-9_-]{1,100}$'
 logger = logging.getLogger(__name__)
 
@@ -41,26 +44,42 @@ def validate_sku(value):
 class GenerateRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     theme: Theme
+    product_type: ProductType = 'passenger'
     sku: str = Field(pattern=SKU_PATTERN, description='Артикул товара, например S207352')
     brand: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=200)
-    size: str = Field(description='Размер: 225/65 R17, 255/85-16, 195 R14C, 225/75 R16 TL или 33x10.5-15 LT')
-    load_index: str = Field(pattern=r'^\d{2,3}(?:/\d{2,3})?$')
-    speed_index: str = Field(pattern=r'^[A-Za-z]{1,3}$')
+    size: str = Field(min_length=1, max_length=180, description='Размер шины; для truck допускается свободная запись')
+    load_index: str | None = Field(default=None, pattern=r'^\d{2,3}(?:/\d{2,3})?$')
+    speed_index: str | None = Field(default=None, pattern=r'^[A-Za-z]{1,3}$')
     image_url: HttpUrl
     season: Literal['summer', 'winter', 'all-season'] | None = None
+    application: str | None = Field(default=None, max_length=160)
+    ply_rating: str | None = Field(default=None, max_length=80)
+    construction: str | None = Field(default=None, max_length=120)
+    equipment: str | None = Field(default=None, max_length=120)
+    diameter: str | None = Field(default=None, max_length=80)
 
     @field_validator('sku')
     @classmethod
     def valid_sku(cls, value):
         return validate_sku(value)
 
-    @field_validator('size')
-    @classmethod
-    def normalized_size(cls, value):
-        return parse_size(value).normalized
+    @model_validator(mode='after')
+    def validate_product(self):
+        if self.product_type == 'truck':
+            if self.theme != 'dark':
+                raise ValueError('Для грузовых карточек пока доступна только тёмная тема (dark)')
+            # Preserve the original free-form truck size; explicit diameter stays separate.
+            split_truck_size(self.size, self.diameter)
+        else:
+            self.size = parse_size(self.size).normalized
+            if not self.load_index or not self.speed_index:
+                raise ValueError('Для легковых шин обязательны load_index и speed_index')
+        return self
 
     def card_data(self):
+        if self.product_type == 'truck':
+            return self.model_dump(mode='json', exclude_none=True)
         parsed = parse_size(self.size)
         return {'brand': self.brand, 'model': self.model, 'size': parsed.size,
                 'diameter': parsed.diameter, 'load': self.load_index,
@@ -74,6 +93,7 @@ class ViewerRequest(BaseModel):
     action: Literal['card', 'parameters', 'generate']
     sku: str = Field(pattern=SKU_PATTERN)
     theme: Theme
+    product_type: ProductType = 'passenger'
     payload: GenerateRequest | None = None
 
 
@@ -81,6 +101,7 @@ class CardResponse(BaseModel):
     sku: str
     theme: Theme
     image_url: str
+    product_type: ProductType = 'passenger'
 
 
 class Pagination(BaseModel):
@@ -92,6 +113,7 @@ class Pagination(BaseModel):
 
 class CardList(BaseModel):
     theme: Theme
+    product_type: ProductType = 'passenger'
     total: int
     count: int
     items: list[CardResponse]
@@ -186,8 +208,11 @@ def render_card(data, destination):
             tyre = cutout(source)
         except ValueError:
             fail(422, 'empty_foreground', 'Не удалось выделить товар на фото')
-        background = ROOT/'assets'/('dark-paint-background-v7.png' if data.theme == 'dark' else 'light-paint-background-v8.png')
-        card = compose(tyre, data.card_data(), background, data.theme)
+        if data.product_type == 'truck':
+            card = compose_truck(tyre, data.card_data())
+        else:
+            background = ROOT/'assets'/('dark-paint-background-v7.png' if data.theme == 'dark' else 'light-paint-background-v8.png')
+            card = compose(tyre, data.card_data(), background, data.theme)
         save_card(card, destination)
 
 
@@ -197,7 +222,8 @@ def create_app(output=None, public_base_url=None, api_key=None):
     api_key = api_key if api_key is not None else os.getenv('CARD_API_KEY', '')
     for theme in ('dark', 'light'):
         (output/theme).mkdir(parents=True, exist_ok=True)
-    app = FastAPI(title='Product Card API', version='1.0.0', description='Готовые карточки и генерация изображений по артикулу. Темы: dark, light.')
+        (output/'truck'/theme).mkdir(parents=True, exist_ok=True)
+    app = FastAPI(title='Product Card API', version='1.1.0', description='Легковые (passenger) и грузовые (truck) карточки. Для грузовых пока доступна генерация только dark.')
     slots = BoundedSemaphore(2)
     key_header = APIKeyHeader(name='X-API-Key', auto_error=False)
 
@@ -207,27 +233,35 @@ def create_app(output=None, public_base_url=None, api_key=None):
         if key is None or not hmac.compare_digest(key.encode(), api_key.encode()):
             fail(401, 'unauthorized', 'Invalid or missing X-API-Key')
 
-    def sku_path(sku, theme, extension='.jpg'):
+    def image_folder(theme, product_type='passenger'):
+        return output/theme if product_type == 'passenger' else output/'truck'/theme
+
+    def sku_path(sku, theme, extension='.jpg', product_type='passenger'):
         try:
             validate_sku(sku)
         except ValueError as error:
             fail(422, 'invalid_sku', str(error))
-        return output/theme/f'{sku}{extension}'
+        return image_folder(theme, product_type)/f'{sku}{extension}'
 
-    def card_response(sku, theme, path):
-        return CardResponse(sku=sku, theme=theme, image_url=f'{base_url}/images/{theme}/{quote(sku)}{path.suffix}?v={path.stat().st_mtime_ns}')
+    def card_response(sku, theme, path, product_type='passenger'):
+        prefix = '' if product_type == 'passenger' else 'truck/'
+        return CardResponse(sku=sku, theme=theme, product_type=product_type,
+                            image_url=f'{base_url}/images/{prefix}{theme}/{quote(sku)}{path.suffix}?v={path.stat().st_mtime_ns}')
 
-    def parameters_path(sku, theme):
-        sku_path(sku, theme)
-        return output.with_name(output.name+'-sources')/sku/f'generation-{theme}.json'
+    def parameters_path(sku, theme, product_type='passenger'):
+        sku_path(sku, theme, product_type=product_type)
+        folder = output.with_name(output.name+'-sources')
+        if product_type == 'truck':
+            folder /= 'truck'
+        return folder/sku/f'generation-{theme}.json'
 
     @app.get('/cards/viewer', include_in_schema=False)
     def viewer():
         return FileResponse(ROOT/'viewer.html', media_type='text/html', headers={'Cache-Control': 'no-store'})
 
     @app.get('/api/v1/cards/{sku}/parameters', dependencies=[Depends(authorize)], summary='Сохранённые параметры генерации')
-    def get_parameters(sku: str, theme: Annotated[Theme, Query()]):
-        saved = parameters_path(sku, theme)
+    def get_parameters(sku: str, theme: Annotated[Theme, Query()], product_type: ProductType = 'passenger'):
+        saved = parameters_path(sku, theme, product_type)
         source = saved.parent/'product.json'
         try:
             if saved.is_file():
@@ -254,9 +288,10 @@ def create_app(output=None, public_base_url=None, api_key=None):
         theme: Annotated[Theme, Query(description='Обязательная тема: dark или light')],
         page: Annotated[int, Query(ge=1, description='Номер страницы, начиная с 1')] = 1,
         per_page: Annotated[int, Query(ge=1, le=500, description='Карточек на странице, максимум 500')] = 100,
+        product_type: ProductType = 'passenger',
     ):
         by_sku = {}
-        for path in sorted((output/theme).iterdir()):
+        for path in sorted(image_folder(theme, product_type).iterdir()):
             if path.suffix not in ('.png', '.jpg'):
                 continue
             if not path.is_file():
@@ -270,36 +305,36 @@ def create_app(output=None, public_base_url=None, api_key=None):
         paths = [by_sku[sku] for sku in sorted(by_sku)]
         total = len(paths)
         start = (page - 1) * per_page
-        items = [card_response(path.stem, theme, path) for path in paths[start:start + per_page]]
+        items = [card_response(path.stem, theme, path, product_type) for path in paths[start:start + per_page]]
         return CardList(
-            theme=theme, total=total, count=len(items), items=items,
+            theme=theme, product_type=product_type, total=total, count=len(items), items=items,
             pagination=Pagination(page=page, per_page=per_page,
                                   total_pages=(total + per_page - 1) // per_page,
                                   has_next_page=start + per_page < total),
         )
 
     @app.get('/api/v1/cards/{sku}', dependencies=[Depends(authorize)], response_model=CardResponse, summary='Готовая карточка по артикулу и теме', responses={404: {'description': 'Карточка ещё не сгенерирована'}})
-    def get_card(sku: str, theme: Annotated[Theme, Query()]):
-        path = sku_path(sku, theme)
+    def get_card(sku: str, theme: Annotated[Theme, Query()], product_type: ProductType = 'passenger'):
+        path = sku_path(sku, theme, product_type=product_type)
         if not path.is_file():
-            path = sku_path(sku, theme, '.png')
+            path = sku_path(sku, theme, '.png', product_type)
         if not path.is_file():
             fail(404, 'image_not_found', 'Картинка для этого артикула и темы не сгенерирована')
-        return card_response(sku, theme, path)
+        return card_response(sku, theme, path, product_type)
 
     @app.post('/api/v1/cards/generate', dependencies=[Depends(authorize)], response_model=CardResponse, summary='Сгенерировать карточку и вернуть ссылку', responses={422: {'description': 'Некорректные поля или изображение'}, 429: {'description': 'Генератор занят'}, 502: {'description': 'Не удалось скачать фото'}})
     def generate_card(data: GenerateRequest):
-        destination = sku_path(data.sku, data.theme)
+        destination = sku_path(data.sku, data.theme, product_type=data.product_type)
         if not slots.acquire(blocking=False):
             fail(429, 'generator_busy', 'Генератор занят; повторите запрос позже')
         try:
             render_card(data, destination)
-            saved = parameters_path(data.sku, data.theme)
+            saved = parameters_path(data.sku, data.theme, data.product_type)
             saved.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=saved.parent, suffix='.tmp', delete=False) as temporary:
                 staging = Path(temporary.name)
             try:
-                staging.write_text(data.model_dump_json(indent=2), encoding='utf-8')
+                staging.write_text(data.model_dump_json(indent=2, exclude_none=True, exclude_defaults=True), encoding='utf-8')
                 os.replace(staging, saved)
             finally:
                 staging.unlink(missing_ok=True)
@@ -310,19 +345,27 @@ def create_app(output=None, public_base_url=None, api_key=None):
             fail(500, 'generation_failed', 'Ошибка при генерации карточки')
         finally:
             slots.release()
-        return card_response(data.sku, data.theme, destination)
+        return card_response(data.sku, data.theme, destination, data.product_type)
 
     @app.post('/cards/viewer', include_in_schema=False)
     def viewer_action(data: ViewerRequest):
         # Public UI operations share validation and generation with the keyed API.
-        sku_path(data.sku, data.theme)
+        sku_path(data.sku, data.theme, product_type=data.product_type)
         if data.action == 'card':
-            return get_card(data.sku, data.theme)
+            return get_card(data.sku, data.theme, data.product_type)
         if data.action == 'parameters':
-            return get_parameters(data.sku, data.theme)
-        if data.payload is None or (data.payload.sku, data.payload.theme) != (data.sku, data.theme):
+            return get_parameters(data.sku, data.theme, data.product_type)
+        if data.payload is None or (data.payload.sku, data.payload.theme, data.payload.product_type) != (data.sku, data.theme, data.product_type):
             fail(422, 'invalid_viewer_payload', 'Generation payload must match the selected SKU and theme')
         return generate_card(data.payload)
+
+    @app.get('/images/truck/{theme}/{sku}.{extension}', include_in_schema=False)
+    def truck_image_file(theme: Theme, sku: str, extension: Literal['jpg', 'png']):
+        path = sku_path(sku, theme, '.'+extension, 'truck')
+        if not path.is_file():
+            fail(404, 'image_not_found', 'Картинка не найдена')
+        return FileResponse(path, media_type='image/jpeg' if extension == 'jpg' else 'image/png',
+                            headers={'Cache-Control': 'no-cache'})
 
     @app.get('/images/{theme}/{sku}.jpg', include_in_schema=False)
     def image_file(theme: Theme, sku: str):

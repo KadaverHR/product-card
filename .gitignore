@@ -38,6 +38,9 @@ qa-*.png
 /test_feed.py
 /test_compression.py
 /test_sizes.py
+/test_cutout.py
+/test_truck.py
+/test_product_types.py
 /qa_*.py
 /qa-*
 /preview-output/

@@ -21,10 +21,12 @@
 <main>
   <h1>Просмотр и перегенерация</h1>
   <form class="search" id="search">
+    <label>Тип товара<select id="product_type"><option value="passenger">Легковые шины</option><option value="truck">Грузовые шины</option><option value="special" disabled>Спецтехника — позже</option><option value="agricultural" disabled>Сельхоз — позже</option></select></label>
     <label>Артикул<input id="sku" required pattern="[A-Za-z0-9_-]{1,100}" placeholder="S207352"></label>
     <label>Тема<select id="theme"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></label>
     <button id="find">Найти</button>
   </form>
+  <p id="type-note" class="note">Легковые шины: доступны тёмная и светлая темы.</p>
   <div id="message" class="message" role="status" hidden></div>
   <div class="layout" id="editor" hidden>
     <section class="panel"><h2>Изображение</h2><p id="missing" hidden>Карточка ещё не создана.</p><img id="preview" class="preview" alt="Карточка товара" hidden><a id="original" target="_blank" rel="noopener" hidden>Открыть изображение</a></section>
@@ -32,12 +34,17 @@
       <form id="generate" class="fields">
         <label>Бренд<input name="brand" required maxlength="100"></label>
         <label>Модель<input name="model" required maxlength="200"></label>
-        <label>Размер<input name="size" required placeholder="225/75 R16 TL или 33х10.5-15 LT"></label>
+        <label>Размер<input name="size" required maxlength="180" placeholder="225/75 R16 TL или 33х10.5-15 LT"></label>
         <label>Индекс нагрузки<input name="load_index" required placeholder="106"></label>
         <label>Индекс скорости<input name="speed_index" required placeholder="H"></label>
-        <label>Сезон<select name="season"><option value="">Без указания</option><option value="summer">Летние</option><option value="winter">Зимние</option><option value="all-season">Всесезонные</option></select></label>
+        <label data-type="passenger">Сезон<select name="season"><option value="">Без указания</option><option value="summer">Летние</option><option value="winter">Зимние</option><option value="all-season">Всесезонные</option></select></label>
+        <label data-type="truck" hidden>Применяемость<input name="application" maxlength="160" placeholder="Универсальная, ведущая ось…"></label>
+        <label data-type="truck" hidden>Слойность<input name="ply_rating" maxlength="80" placeholder="14 PR"></label>
+        <label data-type="truck" hidden>Конструкция<input name="construction" maxlength="120" placeholder="Радиальная"></label>
+        <label data-type="truck" hidden>Комплектация<input name="equipment" maxlength="120" placeholder="TL, TTF…"></label>
+        <label data-type="truck" hidden>Диаметр вручную — необязательно<input name="diameter" maxlength="80" placeholder="R22.5, если не удалось выделить из размера"></label>
         <label class="wide">Ссылка на исходное фото<input name="image_url" type="url" required placeholder="https://..."></label>
-        <p class="note wide">Сохранение заменит карточку выбранного артикула и темы. Для другой темы выполните отдельный поиск.</p>
+        <p class="note wide">Сохранение заменит карточку выбранного типа товара, артикула и темы. Пустые грузовые характеристики не выводятся. Используйте исходное фото шины, не готовую карточку с надписями.</p>
         <button class="wide" id="save">Перегенерировать изображение</button>
       </form>
     </section>
@@ -46,33 +53,52 @@
 <script>
 const el=id=>document.getElementById(id), form=el('generate');
 let selected=null;
+const fields=['brand','model','size','load_index','speed_index','season','image_url','application','ply_rating','construction','equipment','diameter'];
+function applyType(){
+  const type=el('product_type').value,truck=type==='truck';
+  el('theme').querySelector('[value="light"]').disabled=truck;
+  if(truck)el('theme').value='dark';
+  for(const label of document.querySelectorAll('[data-type]')){
+    label.hidden=label.dataset.type!==type;
+    for(const input of label.querySelectorAll('input,select'))input.disabled=label.hidden;
+  }
+  form.elements.load_index.required=!truck;form.elements.speed_index.required=!truck;
+  form.elements.size.placeholder=truck?'Любая запись размера, например 11R22.5 или 12-16.5 NHS':'225/75 R16 TL или 33х10.5-15 LT';
+  el('type-note').textContent=truck?'Грузовые шины: тёмная тема, свободный формат размера. Характеристики и индексы можно оставить пустыми.':'Легковые шины: доступны тёмная и светлая темы, индексы обязательны.';
+}
+function clearEditor(){selected=null;el('editor').hidden=true;el('preview').hidden=true;el('original').hidden=true;el('preview').removeAttribute('src');el('original').removeAttribute('href');el('missing').hidden=true;el('message').hidden=true}
+function busy(value){for(const id of ['find','sku','theme','product_type'])el(id).disabled=value;el('save').disabled=value}
+el('product_type').addEventListener('change',()=>{clearEditor();form.reset();applyType()});
+el('theme').addEventListener('change',clearEditor);
+el('sku').addEventListener('input',clearEditor);
+applyType();
 function message(text,error=false){el('message').hidden=false;el('message').textContent=text;el('message').classList.toggle('error',error)}
 function showImage(data){el('preview').src=data.image_url;el('preview').hidden=false;el('original').href=data.image_url;el('original').hidden=false;el('missing').hidden=true}
-async function api(action,sku,theme,payload){
-  const response=await fetch('/cards/viewer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,sku,theme,payload})});
+async function api(action,sku,theme,product_type,payload){
+  const response=await fetch('/cards/viewer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,sku,theme,product_type,payload})});
   const data=await response.json();
   if(!response.ok){const detail=data.detail;const text=Array.isArray(detail)?detail.map(x=>x.loc.join('.')+': '+x.msg).join('\n'):detail?.message||'Ошибка запроса';throw Object.assign(new Error(text),{status:response.status})}
   return data;
 }
 el('search').addEventListener('submit',async event=>{
-  event.preventDefault();selected=null;el('find').disabled=true;el('editor').hidden=true;form.reset();
-  el('preview').hidden=true;el('original').hidden=true;el('preview').removeAttribute('src');el('missing').hidden=true;
-  const sku=el('sku').value.trim(),theme=el('theme').value;
+  event.preventDefault();clearEditor();form.reset();applyType();busy(true);
+  const sku=el('sku').value.trim(),theme=el('theme').value,product_type=el('product_type').value;
   message('Загрузка…');
   try{
-    try{showImage(await api('card',sku,theme))}catch(error){if(error.status!==404)throw error;el('missing').hidden=false}
+    try{showImage(await api('card',sku,theme,product_type))}catch(error){if(error.status!==404)throw error;el('missing').hidden=false}
     let notice='Параметры загружены. Можно изменить их и перегенерировать карточку.';
-    try{const data=await api('parameters',sku,theme);for(const name of ['brand','model','size','load_index','speed_index','season','image_url'])form.elements[name].value=data[name]??''}
+    try{const data=await api('parameters',sku,theme,product_type);for(const name of fields)form.elements[name].value=data[name]??''}
     catch(error){if(error.status!==404)throw error;notice='Сохранённых параметров нет. Заполните их вручную.'}
-    selected={sku,theme};el('identity').textContent=sku+' · '+(theme==='dark'?'Тёмная':'Светлая');el('editor').hidden=false;message(notice);
-  }catch(error){message(error.message,true)}finally{el('find').disabled=false}
+    selected={sku,theme,product_type};el('identity').textContent=(product_type==='truck'?'Грузовые':'Легковые')+' · '+sku+' · '+(theme==='dark'?'Тёмная':'Светлая');el('editor').hidden=false;message(notice);
+  }catch(error){message(error.message,true)}finally{busy(false)}
 });
 form.addEventListener('submit',async event=>{
   event.preventDefault();if(!selected)return;
-  el('save').disabled=true;el('find').disabled=true;message('Генерация изображения…');
-  const data=Object.fromEntries(new FormData(form));data.season=data.season||null;Object.assign(data,selected);
-  try{showImage(await api('generate',selected.sku,selected.theme,data));message('Карточка обновлена. Параметры сохранены.')}
-  catch(error){message(error.message,true)}finally{el('save').disabled=false;el('find').disabled=false}
+  busy(true);message('Генерация изображения…');
+  const data=Object.fromEntries(new FormData(form));for(const name of Object.keys(data))if(data[name]==='')delete data[name];Object.assign(data,selected);
+  for(const control of form.elements)control.disabled=true;
+  try{showImage(await api('generate',selected.sku,selected.theme,selected.product_type,data));message('Карточка обновлена. Параметры сохранены.')}
+  catch(error){message(error.message,true)}finally{for(const control of form.elements)control.disabled=false;applyType();busy(false)}
 });
 </script>
 </body>

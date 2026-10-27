@@ -11,8 +11,52 @@ SIZE = 1200
 PURPLE = '#7C45F5'
 LIME = '#D4EB3B'
 
-def cutout(path, threshold=235):
-    im = Image.open(path).convert('RGBA')
+def _remove_interior_background(data, background, lo, hi):
+    """Remove large, flat neutral holes; do not globally erase light wheel details."""
+    foreground = ~background & (data[:, :, 3] > 0)
+    yy, xx = np.nonzero(foreground)
+    if not len(xx):
+        return
+    x0, x1, y0, y1 = xx.min(), xx.max(), yy.min(), yy.max()
+    ow, oh = x1-x0+1, y1-y0+1
+    neutral = (lo >= 220) & (hi-lo <= 18) & ~background & (data[:, :, 3] == 255)
+    visited = np.zeros(neutral.shape, bool)
+    h, w = neutral.shape
+    for sy, sx in zip(*np.nonzero(neutral)):
+        if visited[sy, sx]:
+            continue
+        queue = deque([(sy, sx)])
+        visited[sy, sx] = True
+        points = []
+        touches_edge = False
+        while queue:
+            y, x = queue.popleft()
+            points.append((y, x))
+            touches_edge |= y in (0, h-1) or x in (0, w-1)
+            for ny, nx in ((y-1,x),(y+1,x),(y,x-1),(y,x+1)):
+                if 0 <= ny < h and 0 <= nx < w and neutral[ny,nx] and not visited[ny,nx]:
+                    visited[ny,nx] = True
+                    queue.append((ny,nx))
+        if touches_edge or len(points) < max(48, ow*oh*.015):
+            continue
+        py, px = np.array(points).T
+        cx, cy = (px.min()+px.max())/2, (py.min()+py.max())/2
+        if not (x0+.18*ow < cx < x0+.92*ow and y0+.12*oh < cy < y0+.88*oh):
+            continue
+        if py.max()-py.min()+1 < .20*oh or px.max()-px.min()+1 < .06*ow:
+            continue
+        # Background holes are nearly flat; shaded metal/rubber is not.
+        if np.percentile(lo[py,px], 95)-np.percentile(lo[py,px], 5) > 12:
+            continue
+        background[py,px] = True
+
+
+def cutout(path, threshold=235, remove_holes=True):
+    if isinstance(path, Image.Image):
+        im = path.convert('RGBA')
+    else:
+        with Image.open(path) as source:
+            im = source.convert('RGBA')
     data = np.array(im)
     rgb = data[:, :, :3].astype(float)
     lo, hi = rgb.min(2), rgb.max(2)
@@ -33,6 +77,8 @@ def cutout(path, threshold=235):
         for yy, xx in ((y-1,x),(y+1,x),(y,x-1),(y,x+1)):
             if 0 <= yy < h and 0 <= xx < w:
                 add(yy, xx)
+    if remove_holes:
+        _remove_interior_background(data, background, lo, hi)
     # JPEG/resizing can spread the white matte over several boundary pixels.
     # Restrict cleanup to the outer edge; preserve existing semitransparent pixels.
     fringe = max(2, min(4, round(max(w, h)/1200)))
