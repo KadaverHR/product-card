@@ -78,8 +78,6 @@ class GenerateRequest(BaseModel):
     @model_validator(mode='after')
     def validate_product(self):
         if self.product_type == 'truck':
-            if self.theme != 'dark':
-                raise ValueError('Для грузовых карточек пока доступна только тёмная тема (dark)')
             # Preserve the original free-form truck size; explicit diameter stays separate.
             split_truck_size(self.size, self.diameter)
         else:
@@ -246,7 +244,7 @@ def create_app(output=None, public_base_url=None, api_key=None):
     async def lifespan(app):
         yield
         executor.shutdown(wait=True)
-    app = FastAPI(title='Product Card API', version='1.2.0', lifespan=lifespan, description='Легковые (passenger) и грузовые (truck) карточки. Для грузовых пока доступна генерация только dark.')
+    app = FastAPI(title='Product Card API', version='1.3.0', lifespan=lifespan, description='Легковые (passenger) и грузовые (truck) карточки. Темы: dark, light.')
     slots = BoundedSemaphore(2)
     ozon_slot = BoundedSemaphore(1)
     job_slots = BoundedSemaphore(3)

@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+import numpy as np
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -14,10 +15,30 @@ BACKGROUND = ROOT/'assets/truck-tread-background-v1.png'
 LIME, PURPLE = '#d7f329', '#7c45f5'
 
 
-def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
+def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
+    theme = theme or data.get('theme', 'dark')
+    if theme not in ('dark', 'light'):
+        raise ValueError('Theme must be dark or light')
+    dark = theme == 'dark'
+    foreground = 'white' if dark else '#25252d'
+    secondary = '#c3bccb' if dark else '#66616e'
     image = Image.open(background).convert('RGBA').resize((1200,1600), Image.Resampling.LANCZOS)
+    if not dark:
+        # Retain the tread geometry and texture with a restrained light palette.
+        pixels = np.asarray(image).astype(float)
+        rgb = pixels[:,:,:3]
+        r,g,b = rgb[:,:,0],rgb[:,:,1],rgb[:,:,2]
+        purple = (b-r > 25) & (b-g > 35)
+        lime = (g > r*.85) & (r > b*1.4)
+        luminance = rgb.mean(axis=2)/255
+        light = np.repeat((249-luminance*14)[:,:,None],3,axis=2)
+        light[purple] = np.array([124,69,245])*.22 + light[purple]*.78
+        light[lime] = np.array([215,243,41])*.65 + light[lime]*.35
+        pixels[:,:,:3] = light
+        image = Image.fromarray(pixels.astype('uint8'),'RGBA')
     draw = ImageDraw.Draw(image)
-    def label(x,y,value,size,bold=False,fill='white',maxwidth=None):
+    def label(x,y,value,size,bold=False,fill=None,maxwidth=None):
+        fill = fill or foreground
         value = str(value)
         font = ImageFont.truetype(BOLD if bold else FONT,size)
         while maxwidth and draw.textlength(value,font=font)>maxwidth and size>14:
@@ -27,7 +48,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
         return draw.textbbox((x,y),value,font=font,anchor='lt')
     draw.rounded_rectangle((72,146,82,182),radius=3,fill=PURPLE)
     label(112,146,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
-    paste_fit(image,Image.open(ROOT/'assets/logo-white.png').convert('RGBA'),(776,110,360,86))
+    paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,110,360,86))
     label(64,318,data['brand'].upper(),94,True,maxwidth=1068)
     label(68,420,data['model'],62,maxwidth=1068)
     parsed = split_truck_size(data['size'],data.get('diameter'))
@@ -43,10 +64,10 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
         font_size -= 1
     bx = 58+sw+24
     if diameter:
-        draw.rounded_rectangle((bx,473,bx+dw+48,619),radius=24,fill=PURPLE)
-    draw.text((58,505),size,font=font,fill='white',anchor='lt')
+        draw.rounded_rectangle((bx,473,bx+dw+48,619),radius=24,fill=PURPLE if dark else LIME)
+    draw.text((58,505),size,font=font,fill=foreground,anchor='lt')
     if diameter:
-        draw.text((bx+24,505),diameter,font=font,fill='white',anchor='lt')
+        draw.text((bx+24,505),diameter,font=font,fill=foreground,anchor='lt')
     tyre = tyre.convert('RGBA')
     tyre = tyre.resize((round(tyre.width*1390/tyre.height),1390),Image.Resampling.LANCZOS)
     if enhance:
@@ -59,10 +80,10 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
         if data.get(key) is not None and str(data.get(key)).strip()]
     y = 780  # Preserve spacing below the brand group and the Ozon-safe header.
     for caption,value in rows:
-        draw.rounded_rectangle((72,y-3,80,y+83),radius=3,fill=LIME)
-        label(104,y,caption,28,True,fill='#c3bccb',maxwidth=326)
+        draw.rounded_rectangle((72,y-3,80,y+83),radius=3,fill=LIME if dark else PURPLE)
+        label(104,y,caption,28,True,fill=secondary,maxwidth=326)
         label(104,y+39,value,56,maxwidth=334)
-        draw.line((72,y+112,435,y+112),fill='#62576f',width=1)
+        draw.line((72,y+112,435,y+112),fill='#62576f' if dark else '#d8d1e4',width=1)
         y += 136
     indices = [(data.get(key),caption) for key,caption in (
         ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
@@ -70,12 +91,12 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
     caption_y = y+96
     for index,(value,caption) in enumerate(indices):
         x = 96+index*204
-        bounds = label(x,y+8,value,104,True,fill=LIME,maxwidth=170)
+        bounds = label(x,y+8,value,104,True,fill=LIME if dark else PURPLE,maxwidth=170)
         caption_y = max(caption_y,bounds[3]+18)
         index_labels.append((x+2,caption))
     # Keep captions aligned below the actual glyphs, including descenders in J.
     for x,caption in index_labels:
-        label(x,caption_y,caption,25,True,fill='#c3bccb',maxwidth=165)
+        label(x,caption_y,caption,25,True,fill=secondary,maxwidth=165)
     return image.convert('RGB')
 
 
@@ -85,13 +106,14 @@ def main():
     parser.add_argument('--data',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--background',type=Path,default=BACKGROUND)
+    parser.add_argument('--theme',choices=('dark','light'),default='dark')
     args = parser.parse_args()
     data = json.loads(args.data.read_text(encoding='utf-8'))
     for key in ('brand','model','size'):
         if not str(data.get(key) or '').strip():
             parser.error(f'Missing {key}')
     args.output.parent.mkdir(parents=True,exist_ok=True)
-    save_card(compose_truck(cutout(args.input),data,args.background),args.output)
+    save_card(compose_truck(cutout(args.input),data,args.background,theme=args.theme),args.output)
     print(args.output.resolve())
 
 
