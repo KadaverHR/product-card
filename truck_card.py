@@ -50,7 +50,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
     draw.rounded_rectangle((72,header_y,82,header_y+36),radius=3,fill=PURPLE)
     label(112,header_y,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
     paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,110 if dark else 50,360,86))
-    brand_offset = 0 if dark else -100
+    brand_offset = 0 if dark else -40
     label(64,318+brand_offset,data['brand'].upper(),94,True,maxwidth=1068)
     label(68,420+brand_offset,data['model'],62,maxwidth=1068)
     parsed = split_truck_size(data['size'],data.get('diameter'))
@@ -80,7 +80,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         ('application','ПРИМЕНЯЕМОСТЬ'),('ply_rating','СЛОЙНОСТЬ'),
         ('construction','КОНСТРУКЦИЯ'),('equipment','КОМПЛЕКТАЦИЯ'))
         if data.get(key) is not None and str(data.get(key)).strip()]
-    y = 780  # Preserve spacing below the brand group and the Ozon-safe header.
+    y = 780 if dark else 760
     indices = [(data.get(key),caption) for key,caption in (
         ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
     if not dark and (rows or indices):
