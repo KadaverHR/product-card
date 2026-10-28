@@ -92,9 +92,19 @@ def product_pictures(sku):
     if not isinstance(items, list):
         raise OzonError('Не удалось прочитать фотографии Ozon.')
     matches = [item for item in items if str(item.get('product_id')) == str(product_id)]
-    if len(matches) != 1 or matches[0].get('errors'):
-        raise OzonError('Ozon вернул ошибку фотографий: загрузка отменена, старые фото сохранены.')
+    if len(matches) != 1:
+        raise OzonError('Неоднозначный ответ Ozon по фотографиям: загрузка отменена.')
     item = matches[0]
+    # URL-specific failures may refer to earlier imports, not the current gallery.
+    # Validate/archive the current URLs below instead of blocking their replacement.
+    errors = item.get('errors') or []
+    if not isinstance(errors, list) or any(
+        not isinstance(error, dict) or not isinstance(error.get('url'), str) or not error['url'].strip()
+        for error in errors
+    ):
+        raise OzonError('Ozon вернул ошибку фотографий без ссылки: загрузка отменена.')
+    if errors:
+        logger.warning('OZON PHOTO WARNINGS product_id=%s count=%s; checking current gallery before import', product_id, len(errors))
     def links(field):
         values = item.get(field, [])
         if not isinstance(values, list) or any(not isinstance(url, str) or not url.startswith(('https://', 'http://')) for url in values):
@@ -108,7 +118,8 @@ def product_pictures(sku):
     if len(images) > 30:
         raise OzonError('Слишком много изображений Ozon: загрузка отменена.')
     return {'offer_id': offer_id, 'product_id': product_id,
-            'images': images, 'color_image': colors[0] if colors else ''}
+            'images': images, 'color_image': colors[0] if colors else '',
+            'previous_errors': errors}
 
 
 def import_pictures(product, images):
