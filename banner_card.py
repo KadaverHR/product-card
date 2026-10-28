@@ -39,8 +39,8 @@ def compose(tyre,data,background,theme,enhance=True):
     if season_bounds:
         d.rounded_rectangle((64,138+season_bounds[1],72,138+season_bounds[3]-1),radius=2,fill=PURPLE)
     d.text((88,138),season_label,font=season_font,fill=fg,anchor='lt')
-    text(d,(60,207),data['brand'].upper(),94,fg,True,maxwidth=1068)
-    text(d,(64,320),data['model'],62,fg,maxwidth=1068)
+    text(d,(60,235),data['brand'].upper(),94,fg,True,maxwidth=1068)
+    text(d,(64,348),data['model'],62,fg,maxwidth=1068)
     # Keep the diameter badge beside the size, with a shared text baseline.
     display_size = data['size']
     display_diameter = data['diameter']
@@ -56,9 +56,9 @@ def compose(tyre,data,background,theme,enhance=True):
             break
         font_size-=1
     badge_x=58+size_width+24
-    d.rounded_rectangle((badge_x,418,badge_x+diameter_width+48,564),radius=24,fill=LIME)
-    d.text((58,450),display_size,font=font,fill=fg,anchor='lt')
-    d.text((badge_x+24,450),display_diameter,font=font,fill='#25252D',anchor='lt')
+    d.rounded_rectangle((badge_x,446,badge_x+diameter_width+48,592),radius=24,fill=LIME)
+    d.text((58,478),display_size,font=font,fill=fg,anchor='lt')
+    d.text((badge_x+24,478),display_diameter,font=font,fill='#25252D',anchor='lt')
     # Deliberately oversized real source: bottom and right are cropped by canvas.
     scale=1390/tyre.height
     enlarged=tyre.resize((round(tyre.width*scale),1390),Image.Resampling.LANCZOS)
@@ -69,7 +69,7 @@ def compose(tyre,data,background,theme,enhance=True):
     # Opaque quiet information field keeps captions legible on the paint.
     panel_fill='#35313F' if dark else '#FFFFFF'
     panel_outline='#62576F' if dark else '#D4C8E8'
-    for y,key,label1,label2 in [(775,'load','ИНДЕКС','НАГРУЗКИ'),(1030,'speed','ИНДЕКС','СКОРОСТИ')]:
+    for y,key,label1,label2 in [(835,'load','ИНДЕКС','НАГРУЗКИ'),(1090,'speed','ИНДЕКС','СКОРОСТИ')]:
         d.rounded_rectangle((52,y-24,345,y+198),radius=23,fill=panel_fill,outline=panel_outline,width=3)
         d.rounded_rectangle((79,y+6,86,y+174),radius=3,fill=LIME if dark else PURPLE)
         text(d,(107,y-4),data[key],104,fg,True,maxwidth=202)
