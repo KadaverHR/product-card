@@ -50,8 +50,9 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
     draw.rounded_rectangle((72,header_y,82,header_y+36),radius=3,fill=PURPLE)
     label(112,header_y,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
     paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,110 if dark else 50,360,86))
-    label(64,318,data['brand'].upper(),94,True,maxwidth=1068)
-    label(68,420,data['model'],62,maxwidth=1068)
+    brand_offset = 0 if dark else -100
+    label(64,318+brand_offset,data['brand'].upper(),94,True,maxwidth=1068)
+    label(68,420+brand_offset,data['model'],62,maxwidth=1068)
     parsed = split_truck_size(data['size'],data.get('diameter'))
     size, diameter = parsed.size, parsed.diameter
     if diameter.startswith(('-', '–', '—')):
@@ -65,10 +66,10 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         font_size -= 1
     bx = 58+sw+24
     if diameter:
-        draw.rounded_rectangle((bx,473,bx+dw+48,619),radius=24,fill=PURPLE if dark else LIME)
-    draw.text((58,505),size,font=font,fill=foreground,anchor='lt')
+        draw.rounded_rectangle((bx,473+brand_offset,bx+dw+48,619+brand_offset),radius=24,fill=PURPLE if dark else LIME)
+    draw.text((58,505+brand_offset),size,font=font,fill=foreground,anchor='lt')
     if diameter:
-        draw.text((bx+24,505),diameter,font=font,fill=foreground,anchor='lt')
+        draw.text((bx+24,505+brand_offset),diameter,font=font,fill=foreground,anchor='lt')
     tyre = tyre.convert('RGBA')
     tyre = tyre.resize((round(tyre.width*1390/tyre.height),1390),Image.Resampling.LANCZOS)
     if enhance:
