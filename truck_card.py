@@ -36,6 +36,12 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         light[lime] = np.array([215,243,41])*.65 + light[lime]*.35
         pixels[:,:,:3] = light
         image = Image.fromarray(pixels.astype('uint8'),'RGBA')
+    # Place the tyre behind typography so it cannot cover the size badge.
+    tyre = tyre.convert('RGBA')
+    tyre = tyre.resize((round(tyre.width*1390/tyre.height),1390),Image.Resampling.LANCZOS)
+    if enhance:
+        tyre = finish_tyre(tyre)
+    image.alpha_composite(tyre,(480,610))
     draw = ImageDraw.Draw(image)
     def label(x,y,value,size,bold=False,fill=None,maxwidth=None):
         fill = fill or foreground
@@ -51,8 +57,10 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
     label(112,header_y,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
     paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,110 if dark else 50,360,86))
     brand_offset = 0 if dark else -40
-    label(64,318+brand_offset,data['brand'].upper(),94,True,maxwidth=1068)
-    label(68,420+brand_offset,data['model'],62,maxwidth=1068)
+    brand_bounds = label(64,318+brand_offset,data['brand'].upper(),94,True,maxwidth=1068)
+    model_y = max(444+brand_offset,brand_bounds[3]+30)
+    model_bounds = label(68,model_y,data['model'],62,maxwidth=1068)
+    badge_y = max(533+brand_offset,model_bounds[3]+26)
     parsed = split_truck_size(data['size'],data.get('diameter'))
     size, diameter = parsed.size, parsed.diameter
     if diameter.startswith(('-', '–', '—')):
@@ -66,16 +74,10 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         font_size -= 1
     bx = 58+sw+24
     if diameter:
-        draw.rounded_rectangle((bx,473+brand_offset,bx+dw+48,619+brand_offset),radius=24,fill=PURPLE if dark else LIME)
-    draw.text((58,505+brand_offset),size,font=font,fill=foreground,anchor='lt')
+        draw.rounded_rectangle((bx,badge_y,bx+dw+48,badge_y+146),radius=24,fill=PURPLE if dark else LIME)
+    draw.text((58,badge_y+32),size,font=font,fill=foreground,anchor='lt')
     if diameter:
-        draw.text((bx+24,505+brand_offset),diameter,font=font,fill=foreground,anchor='lt')
-    tyre = tyre.convert('RGBA')
-    tyre = tyre.resize((round(tyre.width*1390/tyre.height),1390),Image.Resampling.LANCZOS)
-    if enhance:
-        tyre = finish_tyre(tyre)
-    image.alpha_composite(tyre,(480,610))
-    draw = ImageDraw.Draw(image)
+        draw.text((bx+24,badge_y+32),diameter,font=font,fill=foreground,anchor='lt')
     rows = [(caption,data.get(key)) for key,caption in (
         ('application','ПРИМЕНЯЕМОСТЬ'),('ply_rating','СЛОЙНОСТЬ'),
         ('construction','КОНСТРУКЦИЯ'),('equipment','КОМПЛЕКТАЦИЯ'))
