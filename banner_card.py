@@ -64,7 +64,7 @@ def compose(tyre,data,background,theme,enhance=True):
     enlarged=tyre.resize((round(tyre.width*scale),1390),Image.Resampling.LANCZOS)
     if enhance:
         enlarged=finish_tyre(enlarged)
-    im.alpha_composite(enlarged,(408,610))
+    im.alpha_composite(enlarged,(480,610))
     d=ImageDraw.Draw(im)
     # Opaque quiet information field keeps captions legible on the paint.
     panel_fill='#35313F' if dark else '#FFFFFF'

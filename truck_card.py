@@ -51,7 +51,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
     tyre = tyre.resize((round(tyre.width*1390/tyre.height),1390),Image.Resampling.LANCZOS)
     if enhance:
         tyre = finish_tyre(tyre)
-    image.alpha_composite(tyre,(408,610))
+    image.alpha_composite(tyre,(480,610))
     draw = ImageDraw.Draw(image)
     rows = [(caption,data.get(key)) for key,caption in (
         ('application','ПРИМЕНЯЕМОСТЬ'),('ply_rating','СЛОЙНОСТЬ'),
