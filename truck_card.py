@@ -46,9 +46,10 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
             font = ImageFont.truetype(BOLD if bold else FONT,size)
         draw.text((x,y),value,font=font,fill=fill,anchor='lt')
         return draw.textbbox((x,y),value,font=font,anchor='lt')
-    draw.rounded_rectangle((72,146,82,182),radius=3,fill=PURPLE)
-    label(112,146,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
-    paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,110,360,86))
+    header_y = 146 if dark else 86
+    draw.rounded_rectangle((72,header_y,82,header_y+36),radius=3,fill=PURPLE)
+    label(112,header_y,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
+    paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,110 if dark else 50,360,86))
     label(64,318,data['brand'].upper(),94,True,maxwidth=1068)
     label(68,420,data['model'],62,maxwidth=1068)
     parsed = split_truck_size(data['size'],data.get('diameter'))
@@ -79,14 +80,18 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         ('construction','КОНСТРУКЦИЯ'),('equipment','КОМПЛЕКТАЦИЯ'))
         if data.get(key) is not None and str(data.get(key)).strip()]
     y = 780  # Preserve spacing below the brand group and the Ozon-safe header.
+    indices = [(data.get(key),caption) for key,caption in (
+        ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
+    if not dark and (rows or indices):
+        bottom = y+len(rows)*136+(180 if indices else 0)
+        draw.rounded_rectangle((58,y-18,474,bottom+6),radius=24,fill='#e9e4f3')
+        draw.rounded_rectangle((52,y-24,468,bottom),radius=24,fill='white',outline='#d8c9f5',width=2)
     for caption,value in rows:
         draw.rounded_rectangle((72,y-3,80,y+83),radius=3,fill=LIME if dark else PURPLE)
         label(104,y,caption,28,True,fill=secondary,maxwidth=326)
         label(104,y+39,value,56,maxwidth=334)
         draw.line((72,y+112,435,y+112),fill='#62576f' if dark else '#d8d1e4',width=1)
         y += 136
-    indices = [(data.get(key),caption) for key,caption in (
-        ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
     index_labels = []
     caption_y = y+96
     for index,(value,caption) in enumerate(indices):
