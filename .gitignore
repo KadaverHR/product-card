@@ -42,6 +42,7 @@ qa-*.png
 /test_truck.py
 /test_product_types.py
 /test_ozon.py
+/debug_ozon.py
 /*-ozon-backups/
 /qa_*.py
 /qa-*

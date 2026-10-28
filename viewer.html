@@ -22,7 +22,7 @@
   <h1>Просмотр и перегенерация</h1>
   <form class="search" id="search">
     <label>Тип товара<select id="product_type"><option value="passenger">Легковые шины</option><option value="truck">Грузовые шины</option><option value="special" disabled>Спецтехника — позже</option><option value="agricultural" disabled>Сельхоз — позже</option></select></label>
-    <label>Артикул<input id="sku" required pattern="[A-Za-z0-9_-]{1,100}" placeholder="S207352"></label>
+    <label>Артикул<input id="sku" required pattern="[A-Za-z0-9_\-]{1,100}" placeholder="S207352"></label>
     <label>Тема<select id="theme"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></label>
     <button id="find">Найти</button>
   </form>

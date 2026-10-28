@@ -1,5 +1,19 @@
 # Загрузка карточек в Ozon
 
+## Временная отладка на сервере
+
+Задайте `OZON_DEBUG=1` в окружении службы и перезапустите API. Запросы (без заголовков авторизации), HTTP-коды и полные тела ответов Ozon сохраняются в `/opt/product-card/debug-ozon.log`. Значения ключей и Client ID маскируются. Журнал ротируется: 10 МБ, два архивных файла. При отсутствии ключей в журнале будет `OZON CONFIG ERROR`.
+
+```bash
+sudo mkdir -p /etc/systemd/system/product-card.service.d
+printf '[Service]\nEnvironment=OZON_DEBUG=1\n' | sudo tee /etc/systemd/system/product-card.service.d/ozon-debug.conf > /dev/null
+sudo systemctl daemon-reload
+sudo systemctl restart product-card
+sudo tail -n 100 -f /opt/product-card/debug-ozon.log
+```
+
+После диагностики удалите только `/etc/systemd/system/product-card.service.d/ozon-debug.conf`, выполните `daemon-reload` и перезапустите службу. Если `OZON_DEBUG` добавляли ещё и в `.env`, удалите его и оттуда.
+
 В `.env` в корне `/opt/product-card` добавьте свои значения:
 
 ```dotenv

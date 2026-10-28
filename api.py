@@ -37,7 +37,8 @@ from dotenv import load_dotenv
 import ozon
 
 # Explicit server environment takes priority. No credentials are sent to the UI.
-load_dotenv(ROOT/'.env', override=False)
+if os.getenv('CARD_SKIP_DOTENV') != '1':
+    load_dotenv(ROOT/'.env', override=False)
 
 Theme = Literal['dark', 'light']
 ProductType = Literal['passenger', 'truck']
@@ -234,6 +235,7 @@ def render_card(data, destination):
 
 
 def create_app(output=None, public_base_url=None, api_key=None):
+    ozon.configure_debug()
     output = Path(output or os.getenv('CARD_OUTPUT_DIR', str(ROOT/'feed-output'))).resolve()
     base_url = (public_base_url or os.getenv('CARD_PUBLIC_BASE_URL', 'https://tools.3sta.ru')).rstrip('/')
     api_key = api_key if api_key is not None else os.getenv('CARD_API_KEY', '')

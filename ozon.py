@@ -1,8 +1,38 @@
 """Ozon Seller API integration. Credentials stay on the server."""
 import json
+import logging
 import os
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+logger = logging.getLogger('product_card.ozon')
+
+
+class SecretFormatter(logging.Formatter):
+    def format(self, record):
+        text = super().format(record)
+        for name in ('OZON_API_KEY', 'OZON_CLIENT_ID', 'CARD_API_KEY'):
+            secret = os.getenv(name, '')
+            if secret:
+                text = text.replace(secret, '[HIDDEN]')
+        return text
+
+
+def configure_debug():
+    if os.getenv('OZON_DEBUG', '').lower() not in ('1', 'true', 'yes'):
+        return
+    if any(getattr(handler, 'ozon_server_debug', False) for handler in logger.handlers):
+        return
+    path = Path(__file__).resolve().parent/'debug-ozon.log'
+    handler = RotatingFileHandler(path, maxBytes=10*1024*1024, backupCount=2, encoding='utf-8')
+    handler.ozon_server_debug = True
+    handler.setFormatter(SecretFormatter('%(asctime)s %(levelname)s %(message)s'))
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    logger.debug('OZON DEBUG ENABLED')
 
 
 class OzonError(Exception):
@@ -15,18 +45,28 @@ def request(path, payload):
     client_id = os.getenv('OZON_CLIENT_ID', '').strip()
     api_key = os.getenv('OZON_API_KEY', '').strip()
     if not client_id or not api_key:
+        logger.debug('OZON CONFIG ERROR: credentials missing (values are not logged)')
         raise OzonError('Заполните OZON_CLIENT_ID и OZON_API_KEY на сервере и перезапустите API.', 503)
     req = Request('https://api-seller.ozon.ru'+path,
                   data=json.dumps(payload).encode('utf-8'), method='POST',
                   headers={'Client-Id': client_id, 'Api-Key': api_key,
                            'Content-Type': 'application/json'})
+    logger.debug('OZON REQUEST POST %s\n%s', path, json.dumps(payload, ensure_ascii=False, indent=2))
     try:
         with urlopen(req, timeout=30) as response:
-            data = json.load(response)
+            body = response.read().decode('utf-8', errors='replace')
+            logger.debug('OZON RESPONSE %s HTTP %s\n%s', path, response.status, body)
+            data = json.loads(body)
     except HTTPError as error:
+        try:
+            logger.debug('OZON RESPONSE %s HTTP %s\n%s', path, error.code,
+                         error.read().decode('utf-8', errors='replace'))
+        finally:
+            error.close()
         # Never expose response headers, credentials or arbitrary upstream content.
         raise OzonError(f'Ozon вернул HTTP {error.code}. Проверьте права ключа и журнал загрузки.') from None
-    except (URLError, TimeoutError, OSError):
+    except (URLError, TimeoutError, OSError) as error:
+        logger.debug('OZON NETWORK ERROR %s: %s', path, type(error).__name__)
         raise OzonError('Нет ответа Ozon. Если выполнялась отправка, проверьте карточку в кабинете перед повтором.') from None
     except (ValueError, TypeError):
         raise OzonError('Ozon вернул некорректный ответ.') from None
