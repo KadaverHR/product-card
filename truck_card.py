@@ -24,6 +24,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
             size -= 1
             font = ImageFont.truetype(BOLD if bold else FONT,size)
         draw.text((x,y),value,font=font,fill=fill,anchor='lt')
+        return draw.textbbox((x,y),value,font=font,anchor='lt')
     draw.rounded_rectangle((72,86,82,122),radius=3,fill=PURPLE)
     label(112,86,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
     paste_fit(image,Image.open(ROOT/'assets/logo-white.png').convert('RGBA'),(776,50,360,86))
@@ -65,10 +66,16 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
         y += 136
     indices = [(data.get(key),caption) for key,caption in (
         ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
+    index_labels = []
+    caption_y = y+96
     for index,(value,caption) in enumerate(indices):
         x = 96+index*204
-        label(x,y+8,value,104,True,fill=LIME,maxwidth=170)
-        label(x+2,y+96,caption,25,True,fill='#c3bccb',maxwidth=165)
+        bounds = label(x,y+8,value,104,True,fill=LIME,maxwidth=170)
+        caption_y = max(caption_y,bounds[3]+18)
+        index_labels.append((x+2,caption))
+    # Keep captions aligned below the actual glyphs, including descenders in J.
+    for x,caption in index_labels:
+        label(x,caption_y,caption,25,True,fill='#c3bccb',maxwidth=165)
     return image.convert('RGB')
 
 
