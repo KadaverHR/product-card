@@ -87,13 +87,13 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
     if rows or indices:
         bottom = y+len(rows)*136+(180 if indices else 0)
-        draw.rounded_rectangle((58,y-18,474,bottom+6),radius=24,fill='#1e1b27' if dark else '#e9e4f3')
-        draw.rounded_rectangle((52,y-24,468,bottom),radius=24,fill='#302c3a' if dark else 'white',outline='#62576f' if dark else '#d8c9f5',width=2)
+        draw.rounded_rectangle((58,y-18,474,bottom+6),radius=24,fill='#19191f' if dark else '#e9e4f3')
+        draw.rounded_rectangle((52,y-24,468,bottom),radius=24,fill='#222229' if dark else 'white',outline='#393940' if dark else '#d8c9f5',width=2)
     for caption,value in rows:
         draw.rounded_rectangle((72,y-3,80,y+83),radius=3,fill=LIME if dark else PURPLE)
         label(104,y,caption,28,True,fill=secondary,maxwidth=326)
         label(104,y+39,value,56,maxwidth=334)
-        draw.line((72,y+112,435,y+112),fill='#62576f' if dark else '#d8d1e4',width=1)
+        draw.line((72,y+112,435,y+112),fill='#393940' if dark else '#d8d1e4',width=1)
         y += 136
     index_labels = []
     caption_y = y+96
