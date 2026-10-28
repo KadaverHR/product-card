@@ -28,8 +28,8 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
     draw.rounded_rectangle((72,146,82,182),radius=3,fill=PURPLE)
     label(112,146,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
     paste_fit(image,Image.open(ROOT/'assets/logo-white.png').convert('RGBA'),(776,110,360,86))
-    label(64,278,data['brand'].upper(),94,True,maxwidth=1068)
-    label(68,380,data['model'],62,maxwidth=1068)
+    label(64,318,data['brand'].upper(),94,True,maxwidth=1068)
+    label(68,420,data['model'],62,maxwidth=1068)
     parsed = split_truck_size(data['size'],data.get('diameter'))
     size, diameter = parsed.size, parsed.diameter
     if diameter.startswith(('-', '–', '—')):
@@ -43,10 +43,10 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
         font_size -= 1
     bx = 58+sw+24
     if diameter:
-        draw.rounded_rectangle((bx,433,bx+dw+48,579),radius=24,fill=PURPLE)
-    draw.text((58,465),size,font=font,fill='white',anchor='lt')
+        draw.rounded_rectangle((bx,473,bx+dw+48,619),radius=24,fill=PURPLE)
+    draw.text((58,505),size,font=font,fill='white',anchor='lt')
     if diameter:
-        draw.text((bx+24,465),diameter,font=font,fill='white',anchor='lt')
+        draw.text((bx+24,505),diameter,font=font,fill='white',anchor='lt')
     tyre = tyre.convert('RGBA')
     tyre = tyre.resize((round(tyre.width*1390/tyre.height),1390),Image.Resampling.LANCZOS)
     if enhance:
@@ -57,7 +57,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True):
         ('application','ПРИМЕНЯЕМОСТЬ'),('ply_rating','СЛОЙНОСТЬ'),
         ('construction','КОНСТРУКЦИЯ'),('equipment','КОМПЛЕКТАЦИЯ'))
         if data.get(key) is not None and str(data.get(key)).strip()]
-    y = 740  # Preserve the gap while moving all typography below Ozon overlays.
+    y = 780  # Preserve spacing below the brand group and the Ozon-safe header.
     for caption,value in rows:
         draw.rounded_rectangle((72,y-3,80,y+83),radius=3,fill=LIME)
         label(104,y,caption,28,True,fill='#c3bccb',maxwidth=326)
