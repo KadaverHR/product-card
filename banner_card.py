@@ -24,7 +24,7 @@ def compose(tyre,data,background,theme,enhance=True):
         # A subtle violet lift separates black rubber from the painted backdrop.
         im.alpha_composite(Image.new('RGBA',(W,H),(104,78,142,24)))
     logo=Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA')
-    paste_fit(im,logo,(776,50,360,86))
+    paste_fit(im,logo,(776,110,360,86))
     d=ImageDraw.Draw(im)
     season_label=data.get('season_label','ЗИМНИЕ ШИНЫ')
     season_size=34
@@ -37,10 +37,10 @@ def compose(tyre,data,background,theme,enhance=True):
     ImageDraw.Draw(season_mask).text((0,0),season_label,font=season_font,fill=255,anchor='lt')
     season_bounds=season_mask.getbbox()
     if season_bounds:
-        d.rounded_rectangle((64,78+season_bounds[1],72,78+season_bounds[3]-1),radius=2,fill=PURPLE)
-    d.text((88,78),season_label,font=season_font,fill=fg,anchor='lt')
-    text(d,(60,175),data['brand'].upper(),94,fg,True,maxwidth=1068)
-    text(d,(64,288),data['model'],62,fg,maxwidth=1068)
+        d.rounded_rectangle((64,138+season_bounds[1],72,138+season_bounds[3]-1),radius=2,fill=PURPLE)
+    d.text((88,138),season_label,font=season_font,fill=fg,anchor='lt')
+    text(d,(60,207),data['brand'].upper(),94,fg,True,maxwidth=1068)
+    text(d,(64,320),data['model'],62,fg,maxwidth=1068)
     # Keep the diameter badge beside the size, with a shared text baseline.
     display_size = data['size']
     display_diameter = data['diameter']
@@ -56,9 +56,9 @@ def compose(tyre,data,background,theme,enhance=True):
             break
         font_size-=1
     badge_x=58+size_width+24
-    d.rounded_rectangle((badge_x,386,badge_x+diameter_width+48,532),radius=24,fill=LIME)
-    d.text((58,418),display_size,font=font,fill=fg,anchor='lt')
-    d.text((badge_x+24,418),display_diameter,font=font,fill='#25252D',anchor='lt')
+    d.rounded_rectangle((badge_x,418,badge_x+diameter_width+48,564),radius=24,fill=LIME)
+    d.text((58,450),display_size,font=font,fill=fg,anchor='lt')
+    d.text((badge_x+24,450),display_diameter,font=font,fill='#25252D',anchor='lt')
     # Deliberately oversized real source: bottom and right are cropped by canvas.
     scale=1390/tyre.height
     enlarged=tyre.resize((round(tyre.width*scale),1390),Image.Resampling.LANCZOS)
