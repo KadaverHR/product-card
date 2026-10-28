@@ -42,6 +42,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
     if enhance:
         tyre = finish_tyre(tyre)
     image.alpha_composite(tyre,(480,610))
+    panel_color = tuple(int(v) for v in np.median(np.asarray(image.crop((20,200,200,600)))[:,:,:3].reshape(-1,3),axis=0)) if dark else 'white'
     draw = ImageDraw.Draw(image)
     def label(x,y,value,size,bold=False,fill=None,maxwidth=None):
         fill = fill or foreground
@@ -54,7 +55,11 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         return draw.textbbox((x,y),value,font=font,anchor='lt')
     header_y = 86
     draw.rounded_rectangle((72,header_y,82,header_y+36),radius=3,fill=PURPLE)
-    label(112,header_y,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
+    product_label = {'truck':'ГРУЗОВЫЕ ШИНЫ', 'agricultural':'СЕЛЬХОЗ ШИНЫ',
+                     'special':'ШИНЫ ДЛЯ СПЕЦТЕХНИКИ'}.get(data.get('product_type','truck'))
+    if product_label is None:
+        raise ValueError('Unsupported product type for work tyre card')
+    label(112,header_y,product_label,38,True,maxwidth=610)
     paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,50,360,86))
     brand_offset = -40
     brand_bounds = label(64,318+brand_offset,data['brand'].upper(),94,True,maxwidth=1068)
@@ -85,10 +90,8 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
     y = 760
     indices = [(data.get(key),caption) for key,caption in (
         ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
-    if rows or indices:
-        bottom = y+len(rows)*136+(180 if indices else 0)
-        draw.rounded_rectangle((58,y-18,474,bottom+6),radius=24,fill='#19191f' if dark else '#e9e4f3')
-        draw.rounded_rectangle((52,y-24,468,bottom),radius=24,fill='#222229' if dark else 'white',outline='#393940' if dark else '#d8c9f5',width=2)
+    content = Image.new('RGBA',image.size)
+    draw = ImageDraw.Draw(content)
     for caption,value in rows:
         draw.rounded_rectangle((72,y-3,80,y+83),radius=3,fill=LIME if dark else PURPLE)
         label(104,y,caption,28,True,fill=secondary,maxwidth=326)
@@ -105,6 +108,15 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
     # Keep captions aligned below the actual glyphs, including descenders in J.
     for x,caption in index_labels:
         label(x,caption_y,caption,25,True,fill=secondary,maxwidth=165)
+    bounds = content.getbbox()
+    if bounds:
+        top,bottom = bounds[1]-36,bounds[3]+36
+        panel = ImageDraw.Draw(image)
+        if not dark:
+            panel.rounded_rectangle((58,top+6,474,bottom+6),radius=24,fill='#e9e4f3')
+        panel.rounded_rectangle((52,top,468,bottom),radius=24,fill=panel_color,
+                                outline='#555463' if dark else '#d8c9f5',width=2)
+        image.alpha_composite(content)
     return image.convert('RGB')
 
 

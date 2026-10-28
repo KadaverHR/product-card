@@ -41,7 +41,7 @@ if os.getenv('CARD_SKIP_DOTENV') != '1':
     load_dotenv(ROOT/'.env', override=False)
 
 Theme = Literal['dark', 'light']
-ProductType = Literal['passenger', 'truck']
+ProductType = Literal['passenger', 'truck', 'agricultural', 'special']
 SKU_PATTERN = r'^[A-Za-z0-9_-]{1,100}$'
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class GenerateRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_product(self):
-        if self.product_type == 'truck':
+        if self.product_type != 'passenger':
             # Preserve the original free-form truck size; explicit diameter stays separate.
             split_truck_size(self.size, self.diameter)
         else:
@@ -87,7 +87,7 @@ class GenerateRequest(BaseModel):
         return self
 
     def card_data(self):
-        if self.product_type == 'truck':
+        if self.product_type != 'passenger':
             return self.model_dump(mode='json', exclude_none=True)
         parsed = parse_size(self.size)
         return {'brand': self.brand, 'model': self.model, 'size': parsed.size,
@@ -224,7 +224,7 @@ def render_card(data, destination):
             tyre = cutout(source)
         except ValueError:
             fail(422, 'empty_foreground', 'Не удалось выделить товар на фото')
-        if data.product_type == 'truck':
+        if data.product_type != 'passenger':
             card = compose_truck(tyre, data.card_data())
         else:
             background = ROOT/'assets'/('dark-paint-background-v7.png' if data.theme == 'dark' else 'light-paint-background-v8.png')
@@ -239,12 +239,13 @@ def create_app(output=None, public_base_url=None, api_key=None):
     api_key = api_key if api_key is not None else os.getenv('CARD_API_KEY', '')
     for theme in ('dark', 'light'):
         (output/theme).mkdir(parents=True, exist_ok=True)
-        (output/'truck'/theme).mkdir(parents=True, exist_ok=True)
+        for product_type in ('truck', 'agricultural', 'special'):
+            (output/product_type/theme).mkdir(parents=True, exist_ok=True)
     @asynccontextmanager
     async def lifespan(app):
         yield
         executor.shutdown(wait=True)
-    app = FastAPI(title='Product Card API', version='1.3.0', lifespan=lifespan, description='Легковые (passenger) и грузовые (truck) карточки. Темы: dark, light.')
+    app = FastAPI(title='Product Card API', version='1.4.0', lifespan=lifespan, description='Шины: passenger, truck, agricultural, special. Темы: dark, light.')
     slots = BoundedSemaphore(2)
     ozon_slot = BoundedSemaphore(1)
     job_slots = BoundedSemaphore(3)
@@ -288,7 +289,7 @@ def create_app(output=None, public_base_url=None, api_key=None):
             fail(401, 'unauthorized', 'Invalid or missing X-API-Key')
 
     def image_folder(theme, product_type='passenger'):
-        return output/theme if product_type == 'passenger' else output/'truck'/theme
+        return output/theme if product_type == 'passenger' else output/product_type/theme
 
     def sku_path(sku, theme, extension='.jpg', product_type='passenger'):
         try:
@@ -298,15 +299,15 @@ def create_app(output=None, public_base_url=None, api_key=None):
         return image_folder(theme, product_type)/f'{sku}{extension}'
 
     def card_response(sku, theme, path, product_type='passenger'):
-        prefix = '' if product_type == 'passenger' else 'truck/'
+        prefix = '' if product_type == 'passenger' else product_type+'/'
         return CardResponse(sku=sku, theme=theme, product_type=product_type,
                             image_url=f'{base_url}/images/{prefix}{theme}/{quote(sku)}{path.suffix}?v={path.stat().st_mtime_ns}')
 
     def parameters_path(sku, theme, product_type='passenger'):
         sku_path(sku, theme, product_type=product_type)
         folder = output.with_name(output.name+'-sources')
-        if product_type == 'truck':
-            folder /= 'truck'
+        if product_type != 'passenger':
+            folder /= product_type
         return folder/sku/f'generation-{theme}.json'
 
     @app.get('/cards/viewer', include_in_schema=False)
@@ -489,9 +490,9 @@ def create_app(output=None, public_base_url=None, api_key=None):
             fail(404, 'image_not_found', 'Картинка не найдена')
         return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'public, max-age=31536000, immutable'})
 
-    @app.get('/images/truck/{theme}/{sku}.{extension}', include_in_schema=False)
-    def truck_image_file(theme: Theme, sku: str, extension: Literal['jpg', 'png']):
-        path = sku_path(sku, theme, '.'+extension, 'truck')
+    @app.get('/images/{product_type}/{theme}/{sku}.{extension}', include_in_schema=False)
+    def truck_image_file(product_type: Literal['truck', 'agricultural', 'special'], theme: Theme, sku: str, extension: Literal['jpg', 'png']):
+        path = sku_path(sku, theme, '.'+extension, product_type)
         if not path.is_file():
             fail(404, 'image_not_found', 'Картинка не найдена')
         return FileResponse(path, media_type='image/jpeg' if extension == 'jpg' else 'image/png',
