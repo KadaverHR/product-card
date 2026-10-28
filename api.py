@@ -324,8 +324,13 @@ def create_app(output=None, public_base_url=None, api_key=None):
         saved = parameters_path(sku, theme, product_type)
         source = saved.parent/'product.json'
         try:
-            if saved.is_file():
-                return json.loads(saved.read_text(encoding='utf-8'))
+            alternate = parameters_path(sku, 'light' if theme == 'dark' else 'dark', product_type)
+            for candidate in (saved, alternate):
+                if candidate.is_file():
+                    parameters = json.loads(candidate.read_text(encoding='utf-8'))
+                    # Reuse tyre data, but keep the theme requested by the caller.
+                    parameters.update(sku=sku, theme=theme, product_type=product_type)
+                    return parameters
             if not source.is_file():
                 fail(404, 'parameters_not_found', 'Параметры не сохранены; заполните форму вручную')
             product = json.loads(source.read_text(encoding='utf-8'))
