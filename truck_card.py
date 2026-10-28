@@ -52,11 +52,11 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
             font = ImageFont.truetype(BOLD if bold else FONT,size)
         draw.text((x,y),value,font=font,fill=fill,anchor='lt')
         return draw.textbbox((x,y),value,font=font,anchor='lt')
-    header_y = 146 if dark else 86
+    header_y = 86
     draw.rounded_rectangle((72,header_y,82,header_y+36),radius=3,fill=PURPLE)
     label(112,header_y,'ГРУЗОВЫЕ ШИНЫ',38,True,maxwidth=610)
-    paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,110 if dark else 50,360,86))
-    brand_offset = 0 if dark else -40
+    paste_fit(image,Image.open(ROOT/'assets'/('logo-white.png' if dark else 'logo.png')).convert('RGBA'),(776,50,360,86))
+    brand_offset = -40
     brand_bounds = label(64,318+brand_offset,data['brand'].upper(),94,True,maxwidth=1068)
     model_y = max(444+brand_offset,brand_bounds[3]+30)
     model_bounds = label(68,model_y,data['model'],62,maxwidth=1068)
@@ -82,13 +82,13 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
         ('application','ПРИМЕНЯЕМОСТЬ'),('ply_rating','СЛОЙНОСТЬ'),
         ('construction','КОНСТРУКЦИЯ'),('equipment','КОМПЛЕКТАЦИЯ'))
         if data.get(key) is not None and str(data.get(key)).strip()]
-    y = 780 if dark else 760
+    y = 760
     indices = [(data.get(key),caption) for key,caption in (
         ('load_index','НАГРУЗКА'),('speed_index','СКОРОСТЬ')) if data.get(key)]
-    if not dark and (rows or indices):
+    if rows or indices:
         bottom = y+len(rows)*136+(180 if indices else 0)
-        draw.rounded_rectangle((58,y-18,474,bottom+6),radius=24,fill='#e9e4f3')
-        draw.rounded_rectangle((52,y-24,468,bottom),radius=24,fill='white',outline='#d8c9f5',width=2)
+        draw.rounded_rectangle((58,y-18,474,bottom+6),radius=24,fill='#1e1b27' if dark else '#e9e4f3')
+        draw.rounded_rectangle((52,y-24,468,bottom),radius=24,fill='#302c3a' if dark else 'white',outline='#62576f' if dark else '#d8c9f5',width=2)
     for caption,value in rows:
         draw.rounded_rectangle((72,y-3,80,y+83),radius=3,fill=LIME if dark else PURPLE)
         label(104,y,caption,28,True,fill=secondary,maxwidth=326)
