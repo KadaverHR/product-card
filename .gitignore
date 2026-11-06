@@ -47,6 +47,9 @@ qa-*.png
 /qa_*.py
 /qa-*
 /preview-output/
+/*-feeds/
+/test_feeds.py
+/feed-vk.yml
 /.github/workflows/tests.yml
 
 # Editors and operating systems

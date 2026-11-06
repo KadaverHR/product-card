@@ -34,6 +34,8 @@ from tyre_sizes import parse_size
 from truck_card import compose_truck
 from truck_sizes import split_truck_size
 from dotenv import load_dotenv
+from feeds import FeedRequest, FeedStore
+import xml.etree.ElementTree as ET
 import ozon
 
 # Explicit server environment takes priority. No credentials are sent to the UI.
@@ -252,6 +254,8 @@ def create_app(output=None, public_base_url=None, api_key=None):
     app = FastAPI(title='Product Card API', version='1.4.0', lifespan=lifespan, description='Шины: passenger, truck, agricultural, special. Темы: dark, light.')
     slots = BoundedSemaphore(2)
     ozon_slot = BoundedSemaphore(1)
+    feed_slot = BoundedSemaphore(1)
+    feed_store = FeedStore(output.with_name(output.name+'-feeds'), base_url)
     job_slots = BoundedSemaphore(3)
     executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix='card-job')
     jobs = {}
@@ -515,6 +519,69 @@ def create_app(output=None, public_base_url=None, api_key=None):
         if not path.is_file():
             fail(404, 'image_not_found', 'Картинка не найдена')
         return FileResponse(path, media_type='image/png', headers={'Cache-Control': 'no-cache'})
+
+    def feed_details(feed_id):
+        try:
+            return feed_store.get(feed_id)
+        except FileNotFoundError:
+            fail(404, 'feed_not_found', 'Фид не найден')
+
+    def build_feed(data, feed_id=None):
+        if not feed_slot.acquire(blocking=False):
+            fail(429, 'feed_busy', 'Уже выполняется сборка фида. Повторите позже.')
+        try:
+            content = download_image(str(data.source_url), timeout=60, max_bytes=32_000_000)
+            def picture_url(sku, theme, product_type):
+                try:
+                    return get_card(sku, theme, product_type).image_url
+                except HTTPException as error:
+                    if error.status_code == 404:
+                        fail(422, 'feed_card_missing', f'Нет готовой карточки {sku} ({product_type}, {theme}). Сначала создайте её или выберите исходные фото.')
+                    raise
+            return feed_store.build(data, content, picture_url, feed_id)
+        except (ValueError, ET.ParseError) as error:
+            fail(422, 'invalid_feed', str(error))
+        except (OSError, HTTPClientError):
+            logger.exception('Feed build failed')
+            fail(502, 'feed_build_failed', 'Не удалось скачать или сохранить фид. Предыдущая версия сохранена.')
+        finally:
+            feed_slot.release()
+
+    @app.get('/cards/feeds', include_in_schema=False)
+    def feed_page():
+        return FileResponse(ROOT/'feeds.html', media_type='text/html', headers={'Cache-Control': 'no-store'})
+
+    @app.get('/cards/feeds/list', include_in_schema=False)
+    @app.get('/api/v1/feeds', dependencies=[Depends(authorize)], summary='Сохранённые фиды')
+    def list_feeds():
+        return {'items': feed_store.list()}
+
+    @app.get('/cards/feeds/jobs/{job_id}', include_in_schema=False)
+    @app.get('/api/v1/feeds/jobs/{job_id}', dependencies=[Depends(authorize)], summary='Статус сборки фида')
+    def feed_job(job_id: str):
+        return viewer(job_id)
+
+    @app.post('/cards/feeds/create', include_in_schema=False)
+    @app.post('/api/v1/feeds', dependencies=[Depends(authorize)], summary='Создать фид и постоянную ссылку')
+    def create_feed(data: FeedRequest):
+        return start_job(lambda: build_feed(data))
+
+    @app.get('/api/v1/feeds/{feed_id}', dependencies=[Depends(authorize)], summary='Параметры и ссылка фида')
+    def get_feed(feed_id: str):
+        return feed_details(feed_id)
+
+    @app.post('/cards/feeds/{feed_id}/regenerate', include_in_schema=False)
+    @app.post('/api/v1/feeds/{feed_id}/regenerate', dependencies=[Depends(authorize)], summary='Пересобрать фид, сохранив ссылку')
+    def regenerate_feed(feed_id: str, data: FeedRequest | None = None):
+        current = feed_details(feed_id)
+        config = data or FeedRequest(**current['config'])
+        return start_job(lambda: build_feed(config, feed_id))
+
+    @app.get('/cards/feeds/files/{feed_id}/feed.yml', include_in_schema=False)
+    def public_feed(feed_id: str):
+        feed_details(feed_id)
+        return FileResponse(feed_store.file(feed_id), media_type='application/xml',
+                            headers={'Cache-Control': 'no-cache'})
 
     return app
 

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DEV 3sta · Фиды</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f8f6ff;color:#21173b;font:16px/1.5 system-ui,sans-serif}
+    header{padding:18px 24px;background:#5423b7;color:white;font-weight:700}header a{color:white;margin-left:24px}
+    main{max-width:1200px;margin:auto;padding:24px}h1{color:#5423b7}h2{margin-top:0}
+    .layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.panel{padding:20px;background:white;border:1px solid #ddd3fb;border-radius:12px}
+    form{display:grid;gap:14px}label{display:grid;gap:5px;font-weight:600}input,select,textarea{width:100%;border:1px solid #ddd3fb;border-radius:6px;padding:10px;font:inherit}textarea{min-height:130px;resize:vertical}
+    button{border:0;border-radius:6px;background:#7c45f5;color:white;padding:10px 16px;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.secondary{background:#eee8fc;color:#5423b7}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}.note{font-size:14px;color:#6c6283}.message{background:#f5ffd1;padding:12px;border-radius:6px;white-space:pre-wrap;margin-bottom:18px}.error{background:#ffe3e3}
+    .feed{padding:16px 0;border-bottom:1px solid #ddd3fb}.feed h3{margin:0 0 6px}.feed a{overflow-wrap:anywhere}a{color:#7c45f5}[hidden]{display:none!important}
+    @media(max-width:760px){.layout{grid-template-columns:1fr}main{padding:12px}}
+  </style>
+</head>
+<body>
+<header>DEV 3sta · Фиды <a href="/cards/viewer">Карточки товаров</a></header>
+<main>
+  <h1>Создание и обновление фидов</h1>
+  <div id="message" class="message" role="status" hidden></div>
+  <div class="layout">
+    <section class="panel">
+      <h2 id="heading">Новый фид</h2>
+      <form id="settings">
+        <label>Название<input name="name" required maxlength="120" placeholder="Грузовые шины для VK"></label>
+        <label>Ссылка на исходный YML/XML<input name="source_url" type="url" required value="https://3sta.ru/yandex/feed-truck.xml"></label>
+        <label>Формат результата<select name="format"><option value="vk">Товары VK — характеристики в описании</option><option value="generation">Для генерации карточек — сохранить исходные поля</option></select></label>
+        <label>Артикулы<textarea name="offer_ids" placeholder="T587344&#10;S272362"></textarea></label>
+        <p class="note">Один артикул на строку или через запятую. Используется точное значение id товара в исходном фиде, без автоматического добавления SU. Оставьте пустым, чтобы взять все товары. Если указанный артикул не найден, сборка остановится.</p>
+        <label>Фотографии<select name="pictures"><option value="original">Исходные фотографии</option><option value="cards">Заменить первое фото готовой карточкой</option></select></label>
+        <label>Тип товара<select name="product_type"><option value="truck">Грузовые</option><option value="passenger">Легковые</option><option value="agricultural">Сельхоз</option><option value="special">Спецтехника</option></select></label>
+        <label>Тема готовых карточек<select name="theme"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></label>
+        <p class="note">Тип и тема используются для поиска готовых карточек; товары автоматически по ним не фильтруются. При замене фото карточки должны существовать для всех выбранных артикулов. Другие фото сохраняются.</p>
+        <p class="note">Для последующей генерации изображений выбирайте исходные фотографии: готовая карточка с надписями не подходит как исходник. Сборка фида сама не запускает генерацию картинок и не загружает товары в VK.</p>
+        <div class="actions"><button type="submit">Создать новый фид</button><button type="button" id="regenerate" hidden>Пересобрать этот фид</button><button type="button" id="reset" class="secondary">Очистить выбор</button></div>
+      </form>
+    </section>
+    <section class="panel"><h2>Сохранённые фиды</h2><p class="note">Ссылка постоянная. После пересборки по ней доступна новая версия. При ошибке предыдущий файл остаётся доступен.</p><button type="button" id="refresh" class="secondary">Обновить список</button><div id="feeds"></div></section>
+  </div>
+</main>
+<script>
+const el=id=>document.getElementById(id),form=el('settings');let selected=null,entries=[];
+function message(text,error=false){el('message').hidden=false;el('message').textContent=text;el('message').classList.toggle('error',error)}
+function busy(value){document.querySelectorAll('button,input,select,textarea').forEach(x=>x.disabled=value)}
+async function request(url,options){const response=await fetch(url,options);const body=await response.text();let data;try{data=JSON.parse(body)}catch{throw new Error('Сервер вернул HTTP '+response.status+' вместо JSON. Проверьте службу product-card и маршрут /cards/ в Nginx.')}
+  if(!response.ok){const d=data.detail;throw new Error(Array.isArray(d)?d.map(x=>x.loc.join('.')+': '+x.msg).join('\n'):typeof d==='string'?d:d?.message||'HTTP '+response.status)}return data}
+function load(item){selected=item.id;for(const [key,value] of Object.entries(item.config))if(form.elements[key])form.elements[key].value=key==='offer_ids'?value.join('\n'):value;el('heading').textContent='Редактирование: '+item.config.name;el('regenerate').hidden=false;window.scrollTo({top:0,behavior:'smooth'})}
+async function refresh(){const data=await request('/cards/feeds/list');entries=data.items;const container=el('feeds');container.replaceChildren();if(!entries.length){container.textContent='Сохранённых фидов пока нет.';return}
+  for(const item of entries){const row=document.createElement('article');row.className='feed';const title=document.createElement('h3');title.textContent=item.config.name;row.append(title);const info=document.createElement('p');info.className='note';info.textContent=(item.config.format==='vk'?'VK':'Для генерации')+' · '+item.report.offers+' товаров · '+item.report.bytes+' байт · '+new Date(item.updated_at).toLocaleString('ru-RU');row.append(info);
+    const link=document.createElement('a');link.href=item.url;link.textContent=item.url;link.target='_blank';link.rel='noopener';row.append(link);const actions=document.createElement('p');actions.className='actions';const edit=document.createElement('button');edit.type='button';edit.textContent='Открыть параметры';edit.onclick=()=>load(item);actions.append(edit);const copy=document.createElement('button');copy.type='button';copy.className='secondary';copy.textContent='Копировать ссылку';copy.onclick=async()=>{try{await navigator.clipboard.writeText(item.url);message('Ссылка скопирована.')}catch{message('Скопируйте ссылку над кнопкой вручную.')}};actions.append(copy);row.append(actions);container.append(row)}}
+function payload(){const data=Object.fromEntries(new FormData(form));data.offer_ids=[...new Set(data.offer_ids.split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean))];return data}
+async function build(update){if(!form.reportValidity())return;if(update&&!selected)return;const data=payload();busy(true);message('Скачивание и сборка фида…');
+  try{const job=await request(update?'/cards/feeds/'+selected+'/regenerate':'/cards/feeds/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});let result;
+    while(true){await new Promise(resolve=>setTimeout(resolve,1500));const status=await request('/cards/feeds/jobs/'+encodeURIComponent(job.job_id));if(status.status==='failed')throw new Error(status.detail?.message||'Сборка завершилась с ошибкой');if(status.status==='completed'){result=status.result;break}}
+    await refresh();load(result);message('Фид готов: '+result.report.offers+' товаров. Ссылка доступна в списке справа.');
+  }catch(error){message(error.message,true)}finally{busy(false)}}
+form.onsubmit=event=>{event.preventDefault();build(false)};el('regenerate').onclick=()=>build(true);
+el('reset').onclick=()=>{selected=null;form.reset();el('heading').textContent='Новый фид';el('regenerate').hidden=true};
+el('refresh').onclick=()=>refresh().catch(error=>message(error.message,true));refresh().catch(error=>message(error.message,true));
+</script>
+</body>
+</html>
