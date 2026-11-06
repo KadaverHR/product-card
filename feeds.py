@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 from typing import Literal
 
-from vk_feed import atomic_write, convert
+from vk_feed import atomic_write, convert_parts
 
 
 class FeedRequest(BaseModel):
@@ -53,9 +53,12 @@ class FeedStore:
         return sorted((self.get(path.parent.name) for path in self.folder.glob('*/current.json')),
                       key=lambda item: item['updated_at'], reverse=True)
 
-    def file(self, feed_id):
+    def file(self, feed_id, filename='feed.yml'):
         metadata = self.get(feed_id)
-        return self.directory(feed_id)/metadata['revision']/'feed.yml'
+        names = {item['name'] for item in metadata.get('files', [{'name': 'feed.yml'}])}
+        if filename not in names:
+            raise FileNotFoundError('Часть фида не найдена')
+        return self.directory(feed_id)/metadata['revision']/filename
 
     def build(self, request, data, card_url, feed_id=None):
         if len(data) > 32_000_000:
@@ -101,9 +104,10 @@ class FeedStore:
             raise ValueError('Нет товаров для публикации')
         output = ET.tostring(root, encoding='utf-8', xml_declaration=True)
         if request.format == 'vk':
-            output, report = convert(output)
+            parts, report = convert_parts(output)
         else:
-            report = {'offers': len(found), 'bytes': len(output)}
+            parts = [(output, len(found))]
+            report = {'offers': len(found), 'bytes': len(output), 'parts': 1}
         report['pictures_replaced'] = replaced
         feed_id = feed_id or uuid.uuid4().hex
         previous = self.get(feed_id) if (self.directory(feed_id)/'current.json').is_file() else None
@@ -112,8 +116,13 @@ class FeedStore:
         metadata = {'id': feed_id, 'revision': revision, 'created_at': previous['created_at'] if previous else now,
                     'updated_at': now, 'config': request.model_dump(mode='json'), 'report': report,
                     'url': f'{self.base_url}/cards/feeds/files/{feed_id}/feed.yml'}
+        metadata['files'] = []
         # Publish the pointer last: failed conversions leave the previous URL intact.
-        atomic_write(self.directory(feed_id)/revision/'feed.yml', output)
+        for index, (content, count) in enumerate(parts, 1):
+            name = 'feed.yml' if index == 1 else f'part-{index:03d}.yml'
+            atomic_write(self.directory(feed_id)/revision/name, content)
+            metadata['files'].append({'name': name, 'offers': count, 'bytes': len(content),
+                                      'url': f'{self.base_url}/cards/feeds/files/{feed_id}/{name}'})
         atomic_write(self.directory(feed_id)/'current.json',
                      json.dumps(metadata, ensure_ascii=False, indent=2).encode('utf-8'))
         return metadata

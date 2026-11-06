@@ -577,10 +577,14 @@ def create_app(output=None, public_base_url=None, api_key=None):
         config = data or FeedRequest(**current['config'])
         return start_job(lambda: build_feed(config, feed_id))
 
-    @app.get('/cards/feeds/files/{feed_id}/feed.yml', include_in_schema=False)
-    def public_feed(feed_id: str):
+    @app.get('/cards/feeds/files/{feed_id}/{filename}', include_in_schema=False)
+    def public_feed(feed_id: str, filename: str):
         feed_details(feed_id)
-        return FileResponse(feed_store.file(feed_id), media_type='application/xml',
+        try:
+            path = feed_store.file(feed_id, filename)
+        except FileNotFoundError:
+            fail(404, 'feed_part_not_found', 'Часть фида не найдена')
+        return FileResponse(path, media_type='application/xml',
                             headers={'Cache-Control': 'no-cache'})
 
     return app

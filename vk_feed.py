@@ -68,7 +68,7 @@ def money(value):
         raise ValueError('invalid price') from exc
 
 
-def convert(data):
+def convert(data, *, enforce_limits=True):
     # Do not accept internal entities/DTDs from an external feed.
     if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
         raise ValueError('DTD/entities are not supported')
@@ -77,7 +77,7 @@ def convert(data):
     if root.tag != 'yml_catalog' or shop is None:
         raise ValueError('expected yml_catalog/shop')
     source_offers = shop.findall('./offers/offer')
-    if not source_offers or len(source_offers) > 15000:
+    if not source_offers or (enforce_limits and len(source_offers) > 15000):
         raise ValueError('feed must contain 1..15000 offers')
     result = ET.Element('yml_catalog', date=datetime.now().strftime('%Y-%m-%d %H:%M'))
     target = ET.SubElement(result, 'shop')
@@ -165,10 +165,40 @@ def convert(data):
         except ValueError as exc:
             raise ValueError(f'offer {oid!r}: {exc}') from exc
     output = ET.tostring(result, encoding='utf-8', xml_declaration=True)
-    if len(output) > MAX_BYTES:
+    if enforce_limits and len(output) > MAX_BYTES:
         raise ValueError(f'output exceeds {MAX_BYTES} bytes; split the catalog explicitly')
     ET.fromstring(output)
     return output, {'offers': len(source_offers), 'bytes': len(output), **stats}
+
+
+def convert_parts(data, *, max_bytes=MAX_BYTES, max_offers=15000):
+    """Validate every offer, then split without dropping or duplicating products."""
+    output, report = convert(data, enforce_limits=False)
+    root = ET.fromstring(output)
+    offers = root.find('./shop/offers')
+    items = list(offers)
+    offers.clear()
+    skeleton = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+    prefix, separator, suffix = skeleton.partition(b'<offers />')
+    if not separator:
+        raise ValueError('Cannot construct feed envelope')
+    prefix += b'<offers>'
+    suffix = b'</offers>'+suffix
+    overhead = len(prefix)+len(suffix)
+    parts, chunk, size = [], [], overhead
+    for offer in items:
+        serialized = ET.tostring(offer, encoding='utf-8')
+        if overhead+len(serialized) > max_bytes:
+            raise ValueError(f'offer {offer.get("id")!r} exceeds feed size limit even in a separate file')
+        if chunk and (size+len(serialized) > max_bytes or len(chunk) >= max_offers):
+            parts.append((prefix+b''.join(chunk)+suffix, len(chunk)))
+            chunk, size = [], overhead
+        chunk.append(serialized)
+        size += len(serialized)
+    if chunk:
+        parts.append((prefix+b''.join(chunk)+suffix, len(chunk)))
+    report.update(bytes=sum(len(content) for content, _ in parts), parts=len(parts))
+    return parts, report
 
 
 def atomic_write(path, data):
