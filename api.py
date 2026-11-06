@@ -584,7 +584,9 @@ def create_app(output=None, public_base_url=None, api_key=None):
             path = feed_store.file(feed_id, filename)
         except FileNotFoundError:
             fail(404, 'feed_part_not_found', 'Часть фида не найдена')
-        return FileResponse(path, media_type='application/xml',
+        # Match VK's file input accept="text/xml"; .yml can have an empty or
+        # incompatible File.type after download on Windows.
+        return FileResponse(path, media_type='text/xml', filename=Path(filename).with_suffix('.xml').name,
                             headers={'Cache-Control': 'no-cache'})
 
     return app
