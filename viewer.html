@@ -42,9 +42,10 @@
         <label data-type="truck" hidden>Слойность<input name="ply_rating" maxlength="80" placeholder="14 PR"></label>
         <label data-type="truck" hidden>Конструкция<input name="construction" maxlength="120" placeholder="Радиальная"></label>
         <label data-type="truck" hidden>Комплектация<input name="equipment" maxlength="120" placeholder="TL, TTF…"></label>
+        <label data-type="truck" hidden>Особенности<input name="features" maxlength="200" list="feature-options" placeholder="Необязательно"><datalist id="feature-options"><option value="Цельнолитая"><option value="Цельнолитая, немаркая"></datalist></label>
         <label data-type="truck" hidden>Диаметр вручную — необязательно<input name="diameter" maxlength="80" placeholder="R22.5, если не удалось выделить из размера"></label>
         <label class="wide">Ссылка на исходное фото<input name="image_url" type="url" required placeholder="https://..."></label>
-        <p class="note wide">Сохранение заменит карточку выбранного типа товара, артикула и темы. Пустые грузовые характеристики не выводятся. Используйте исходное фото шины, не готовую карточку с надписями.</p>
+        <p class="note wide">Сохранение заменит карточку выбранного типа товара, артикула и темы. Пустые характеристики не выводятся. Для цельнолитой спецшины укажите «Цельнолитая» в особенностях; для пневматической оставьте поле пустым или укажите другие особенности. Используйте исходное фото шины, не готовую карточку с надписями.</p>
         <button class="wide" id="save">Перегенерировать изображение</button>
       </form>
     </section>
@@ -53,7 +54,7 @@
 <script>
 const el=id=>document.getElementById(id), form=el('generate');
 let selected=null;
-const fields=['brand','model','size','load_index','speed_index','season','image_url','application','ply_rating','construction','equipment','diameter'];
+const fields=['brand','model','size','load_index','speed_index','season','image_url','application','ply_rating','construction','equipment','features','diameter'];
 function applyType(){
   const type=el('product_type').value,truck=type!=='passenger';
   el('theme').querySelector('[value="light"]').disabled=false;
@@ -63,7 +64,8 @@ function applyType(){
   }
   form.elements.load_index.required=!truck;form.elements.speed_index.required=!truck;
   form.elements.size.placeholder=truck?'Любая запись размера, например 11R22.5 или 12-16.5 NHS':'225/75 R16 TL или 33х10.5-15 LT';
-  el('type-note').textContent=truck?'Грузовые, сельхоз и спецтехника: тёмная и светлая темы, свободный формат размера. Характеристики и индексы можно оставить пустыми.':'Легковые шины: доступны тёмная и светлая темы, индексы обязательны.';
+  form.elements.speed_index.placeholder=type==='agricultural'||type==='special'?'A8, J…':'H';
+  el('type-note').textContent=({passenger:'Легковые шины: доступны тёмная и светлая темы, индексы обязательны.',truck:'Грузовые шины: обе темы, свободный формат размера. Характеристики и индексы необязательны.',agricultural:'Сельхоз: отдельный фон с тракторным следом, обе темы. Укажите известные характеристики; индексы A1–A8 поддерживаются.',special:'Спецтехника: отдельный фон с блочным протектором, обе темы. Для пневматической шины заполните известные характеристики; для цельнолитой укажите особенность «Цельнолитая».'})[type];
 }
 function clearEditor(){selected=null;el('upload-ozon').hidden=true;el('ozon-note').hidden=true;el('editor').hidden=true;el('preview').hidden=true;el('original').hidden=true;el('preview').removeAttribute('src');el('original').removeAttribute('href');el('missing').hidden=true;el('message').hidden=true}
 function busy(value){for(const id of ['find','sku','theme','product_type','upload-ozon'])el(id).disabled=value;el('save').disabled=value}

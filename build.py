@@ -37,16 +37,16 @@ def _remove_interior_background(data, background, lo, hi):
                 if 0 <= ny < h and 0 <= nx < w and neutral[ny,nx] and not visited[ny,nx]:
                     visited[ny,nx] = True
                     queue.append((ny,nx))
-        if touches_edge or len(points) < max(48, ow*oh*.015):
+        if touches_edge or len(points) < max(48, ow*oh*.005):
             continue
         py, px = np.array(points).T
         cx, cy = (px.min()+px.max())/2, (py.min()+py.max())/2
         if not (x0+.18*ow < cx < x0+.92*ow and y0+.12*oh < cy < y0+.88*oh):
             continue
-        if py.max()-py.min()+1 < .20*oh or px.max()-px.min()+1 < .06*ow:
+        if py.max()-py.min()+1 < .20*oh or px.max()-px.min()+1 < .04*ow:
             continue
         # Background holes are nearly flat; shaded metal/rubber is not.
-        if np.percentile(lo[py,px], 95)-np.percentile(lo[py,px], 5) > 12:
+        if np.percentile(lo[py,px], 95)-np.percentile(lo[py,px], 5) > 18:
             continue
         background[py,px] = True
 

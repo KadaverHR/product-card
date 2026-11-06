@@ -59,15 +59,16 @@ class GenerateRequest(BaseModel):
     sku: str = Field(pattern=SKU_PATTERN, description='Артикул товара, например S207352')
     brand: str = Field(min_length=1, max_length=100)
     model: str = Field(min_length=1, max_length=200)
-    size: str = Field(min_length=1, max_length=180, description='Размер шины; для truck допускается свободная запись')
+    size: str = Field(min_length=1, max_length=180, description='Размер шины; для truck, agricultural и special допускается свободная запись')
     load_index: str | None = Field(default=None, pattern=r'^\d{2,3}(?:/\d{2,3})?$')
-    speed_index: str | None = Field(default=None, pattern=r'^[A-Za-z]{1,3}$')
+    speed_index: str | None = Field(default=None, pattern=r'^(?:[A-Za-z]{1,3}|[Aa][1-8])$')
     image_url: HttpUrl
     season: Literal['summer', 'winter', 'all-season'] | None = None
     application: str | None = Field(default=None, max_length=160)
     ply_rating: str | None = Field(default=None, max_length=80)
     construction: str | None = Field(default=None, max_length=120)
     equipment: str | None = Field(default=None, max_length=120)
+    features: str | None = Field(default=None, max_length=200, description='Особенности шины. Для цельнолитой спецшины передайте Цельнолитая; иначе поле можно опустить')
     diameter: str | None = Field(default=None, max_length=80)
 
     @field_validator('sku')
@@ -84,6 +85,8 @@ class GenerateRequest(BaseModel):
             self.size = parse_size(self.size).normalized
             if not self.load_index or not self.speed_index:
                 raise ValueError('Для легковых шин обязательны load_index и speed_index')
+            if not re.fullmatch(r'[A-Za-z]{1,3}', self.speed_index):
+                raise ValueError('Индекс скорости легковой шины должен состоять из букв')
         return self
 
     def card_data(self):
