@@ -101,7 +101,7 @@ def compose_truck(tyre, data, background=BACKGROUND, enhance=True, theme=None):
     rows = [(caption,data.get(key)) for key,caption in (
         ('application','ПРИМЕНЯЕМОСТЬ'),('ply_rating','СЛОЙНОСТЬ'),
         ('construction','КОНСТРУКЦИЯ'),('equipment','КОМПЛЕКТАЦИЯ'),
-        ('features','ОСОБЕННОСТИ'))
+        ('features','ОСОБЕННОСТИ'),('bead','БУРТ'))
         if data.get(key) is not None and str(data.get(key)).strip()]
     y = 760
     indices = [(data.get(key),caption) for key,caption in (

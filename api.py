@@ -69,6 +69,7 @@ class GenerateRequest(BaseModel):
     construction: str | None = Field(default=None, max_length=120)
     equipment: str | None = Field(default=None, max_length=120)
     features: str | None = Field(default=None, max_length=200, description='Особенности шины. Для цельнолитой спецшины передайте Цельнолитая; иначе поле можно опустить')
+    bead: Literal['С буртом', 'Без бурта'] | None = Field(default=None, description='Бурт: С буртом или Без бурта. Если данных нет, опустите поле')
     diameter: str | None = Field(default=None, max_length=80)
 
     @field_validator('sku')
