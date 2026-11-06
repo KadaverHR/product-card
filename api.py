@@ -530,6 +530,8 @@ def create_app(output=None, public_base_url=None, api_key=None):
         if not feed_slot.acquire(blocking=False):
             fail(429, 'feed_busy', 'Уже выполняется сборка фида. Повторите позже.')
         try:
+            if feed_id is not None:
+                feed_details(feed_id)
             content = download_image(str(data.source_url), timeout=60, max_bytes=32_000_000)
             def picture_url(sku, theme, product_type):
                 try:
@@ -576,6 +578,23 @@ def create_app(output=None, public_base_url=None, api_key=None):
         current = feed_details(feed_id)
         config = data or FeedRequest(**current['config'])
         return start_job(lambda: build_feed(config, feed_id))
+
+    @app.delete('/cards/feeds/{feed_id}', include_in_schema=False)
+    @app.delete('/api/v1/feeds/{feed_id}', dependencies=[Depends(authorize)], summary='Удалить фид и все его версии')
+    def delete_feed(feed_id: str):
+        if not feed_slot.acquire(blocking=False):
+            fail(409, 'feed_busy', 'Дождитесь завершения сборки фида перед удалением.')
+        try:
+            return feed_store.delete(feed_id)
+        except FileNotFoundError:
+            fail(404, 'feed_not_found', 'Фид не найден')
+        except ValueError as error:
+            fail(422, 'invalid_feed_path', str(error))
+        except OSError:
+            logger.exception('Feed deletion failed')
+            fail(500, 'feed_delete_failed', 'Не удалось полностью удалить файлы фида. Проверьте журнал API.')
+        finally:
+            feed_slot.release()
 
     @app.get('/cards/feeds/files/{feed_id}/{filename}', include_in_schema=False)
     def public_feed(feed_id: str, filename: str):

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import shutil
 import uuid
 from urllib.parse import urljoin
 import xml.etree.ElementTree as ET
@@ -59,6 +60,18 @@ class FeedStore:
         if filename not in names:
             raise FileNotFoundError('Часть фида не найдена')
         return self.directory(feed_id)/metadata['revision']/filename
+
+    def delete(self, feed_id):
+        self.get(feed_id)
+        path = self.directory(feed_id)
+        root = self.folder.resolve()
+        # Never follow a feed directory symlink or delete outside feed storage.
+        if path.is_symlink() or path.resolve().parent != root:
+            raise ValueError('Недопустимый путь фида')
+        retired = root/('.deleting-'+uuid.uuid4().hex)
+        path.rename(retired)
+        shutil.rmtree(retired)
+        return {'status': 'deleted', 'id': feed_id}
 
     def build(self, request, data, card_url, feed_id=None):
         if len(data) > 32_000_000:
